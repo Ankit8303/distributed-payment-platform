@@ -130,6 +130,9 @@ app:
     auth:
       login-limit: ${AUTH_LOGIN_RATE_LIMIT:5}
       login-window-seconds: 60
+    financial:
+      limit: ${FINANCIAL_API_RATE_LIMIT:30}
+      window-seconds: ${FINANCIAL_API_RATE_LIMIT_WINDOW_SECONDS:60}
 
 outbox:
   relay:
