@@ -74,13 +74,23 @@ jobs:
       - name: Scan Published Container
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.push.outputs.digest }}
           format: table
           exit-code: '1'
           ignore-unfixed: true
           vuln-type: os,library
           severity: CRITICAL,HIGH
           trivyignores: .trivyignore
+
+      - name: Generate Container SBOM
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.push.outputs.digest }}
+          format: cyclonedx
+          output: sbom.cdx.json
+          exit-code: '0'
+          ignore-unfixed: true
+          vuln-type: os,library
 
       - name: Generate Binary SHA-256
         run: sha256sum target/payment-ledger-platform.jar | tee target/payment-ledger-platform.jar.sha256
@@ -104,4 +114,12 @@ jobs:
         with:
           subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+      - name: Attest Container SBOM
+        uses: actions/attest@v4
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          sbom-path: sbom.cdx.json
           push-to-registry: true
