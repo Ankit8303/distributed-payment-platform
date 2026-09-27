@@ -61,6 +61,7 @@ public class RefundController {
             @Valid @RequestBody ReversalCreateRequest request) {
 
         UUID userId = UUID.fromString(userIdStr);
+        financialApiRateLimiter.enforce(FinancialRateLimitOperation.REVERSAL, userId.toString());
         ReversalResponse response = refundService.createReversal(userId, paymentId, idempotencyKey, correlationId, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
