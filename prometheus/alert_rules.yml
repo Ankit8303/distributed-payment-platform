@@ -1,0 +1,319 @@
+groups:
+
+  # ===========================================================================
+  # HTTP API Availability & Latency
+  # ===========================================================================
+  - name: http_api
+    rules:
+      - alert: HighHttpErrorRate
+        expr: |
+          sum(rate(http_server_requests_seconds_count{status=~"5.."}[5m]))
+          /
+          sum(rate(http_server_requests_seconds_count[5m])) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "HTTP 5xx error rate > 5%"
+          description: "Platform API is returning server errors at {{ $value | humanizePercentage }} of requests over the last 5 minutes."
+          runbook: "docs/observability/runbooks.md#http-5xx-rate"
+
+      - alert: HighHttpP99Latency
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(http_server_requests_seconds_bucket[5m])) by (le, uri)
+          ) > 2.0
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "HTTP p99 latency > 2s"
+          description: "The 99th percentile HTTP response latency has exceeded 2 seconds for route {{ $labels.uri }}."
+          runbook: "docs/observability/runbooks.md#http-p99-latency"
+
+  # ===========================================================================
+  # Payment Domain
+  # ===========================================================================
+  - name: payments
+    rules:
+      - alert: HighPaymentFailureRate
+        expr: |
+          sum(rate(payment_failed_total[5m]))
+          /
+          (sum(rate(payment_created_total[5m])) + 0.001) > 0.10
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Payment failure rate > 10%"
+          description: "More than 10% of payments are failing: {{ $value | humanizePercentage }}."
+          runbook: "docs/observability/runbooks.md#payment-failure-rate"
+
+      - alert: PaymentPendingReconciliationSpike
+        expr: |
+          sum(rate(payment_pending_reconciliation_total[5m])) > 0.1
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Payments entering PENDING_RECONCILIATION at elevated rate"
+          description: "Payments are moving to PENDING_RECONCILIATION at {{ $value }}/s."
+          runbook: "docs/observability/runbooks.md#pending-reconciliation-spike"
+
+  # ===========================================================================
+  # Ledger Integrity
+  # ===========================================================================
+  - name: ledger
+    rules:
+      - alert: LedgerUnbalancedTransaction
+        expr: |
+          increase(ledger_unbalanced_transaction_total[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Unbalanced ledger transaction detected"
+          description: "A ledger transaction where debits != credits has been detected. IMMEDIATE investigation required."
+          runbook: "docs/observability/runbooks.md#unbalanced-transaction"
+
+      - alert: LedgerInvariantFailure
+        expr: |
+          increase(ledger_invariant_failure_total[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Ledger invariant check failed"
+          description: "A ledger invariant ({{ $labels.type }}) was violated."
+          runbook: "docs/observability/runbooks.md#ledger-invariant-failure"
+
+      - alert: HighLedgerTransactionFailureRate
+        expr: |
+          sum(rate(ledger_transaction_failure_total[5m]))
+          /
+          (sum(rate(ledger_transaction_posted_total[5m])) + 0.001) > 0.05
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Ledger transaction failure rate > 5%"
+          description: "{{ $value | humanizePercentage }} of ledger transactions are failing."
+          runbook: "docs/observability/runbooks.md#ledger-transaction-failure"
+
+  # ===========================================================================
+  # Outbox Relay Health
+  # ===========================================================================
+  - name: outbox
+    rules:
+      - alert: OutboxPendingBacklog
+        expr: outbox_pending > 500
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Outbox pending event backlog > 500"
+          description: "There are {{ $value }} events pending in the outbox."
+          runbook: "docs/observability/runbooks.md#outbox-backlog"
+
+      - alert: OutboxCriticalBacklog
+        expr: outbox_pending > 2000
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Outbox pending event backlog > 2000 — relay failure"
+          description: "Critical outbox backlog of {{ $value }} events. Domain events are not being delivered."
+          runbook: "docs/observability/runbooks.md#outbox-backlog"
+
+      - alert: OutboxOldestEventAge
+        expr: outbox_oldest_age > 300
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Oldest outbox event is > 5 minutes old"
+          description: "The oldest unprocessed outbox event is {{ $value }}s old."
+          runbook: "docs/observability/runbooks.md#outbox-oldest-age"
+
+      - alert: OutboxHighFailureRate
+        expr: |
+          sum(rate(outbox_failed_total[5m]))
+          /
+          (sum(rate(outbox_published_total[5m])) + sum(rate(outbox_failed_total[5m])) + 0.001) > 0.10
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Outbox publish failure rate > 10%"
+          description: "More than 10% of outbox events are failing to publish to Kafka."
+          runbook: "docs/observability/runbooks.md#outbox-failure-rate"
+
+  # ===========================================================================
+  # Kafka Consumer Health
+  # ===========================================================================
+  - name: kafka
+    rules:
+      - alert: KafkaConsumerLagHigh
+        expr: kafka_consumer_lag > 1000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Kafka consumer lag > 1000 messages"
+          description: "Consumer on topic {{ $labels.topic }} has a lag of {{ $value }} messages."
+          runbook: "docs/observability/runbooks.md#kafka-consumer-lag"
+
+      - alert: KafkaConsumerLagCritical
+        expr: kafka_consumer_lag > 5000
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Kafka consumer lag > 5000 — potential processing outage"
+          description: "Consumer on topic {{ $labels.topic }} lag is {{ $value }}."
+          runbook: "docs/observability/runbooks.md#kafka-consumer-lag"
+
+      - alert: KafkaDltEventsDetected
+        expr: increase(kafka_consumer_dlt_total[5m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Messages routed to Dead Letter Topic"
+          description: "{{ $value }} message(s) sent to DLT for topic {{ $labels.topic }}."
+          runbook: "docs/observability/runbooks.md#kafka-dlt"
+
+  # ===========================================================================
+  # Database Connection Pool (HikariCP)
+  # ===========================================================================
+  - name: database
+    rules:
+      - alert: HikariConnectionPoolSaturation
+        expr: |
+          hikaricp_connections_active
+          /
+          (hikaricp_connections_active + hikaricp_connections_idle + hikaricp_connections_pending + 0.001) > 0.90
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "HikariCP connection pool saturation > 90%"
+          description: "Database connection pool is {{ $value | humanizePercentage }} saturated."
+          runbook: "docs/observability/runbooks.md#hikari-saturation"
+
+      - alert: HikariConnectionTimeout
+        expr: increase(hikaricp_connections_timeout_total[5m]) > 5
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "HikariCP connection timeouts detected"
+          description: "{{ $value }} connection timeout(s) occurred in the last 5 minutes."
+          runbook: "docs/observability/runbooks.md#hikari-timeout"
+
+  # ===========================================================================
+  # Redis Cache
+  # ===========================================================================
+  - name: redis
+    rules:
+      - alert: RedisOperationFailureRate
+        expr: |
+          sum(rate(redis_operation_failure_total[5m])) > 0.5
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis operation failure rate elevated"
+          description: "Redis failing at {{ $value }}/s. Cache-dependent features may be degraded."
+          runbook: "docs/observability/runbooks.md#redis-failures"
+
+  # ===========================================================================
+  # JVM Health
+  # ===========================================================================
+  - name: jvm
+    rules:
+      - alert: JvmHeapMemoryPressure
+        expr: |
+          jvm_memory_used_bytes{area="heap"}
+          /
+          jvm_memory_max_bytes{area="heap"} > 0.85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "JVM heap memory usage > 85%"
+          description: "JVM heap is at {{ $value | humanizePercentage }}. Risk of OOM."
+          runbook: "docs/observability/runbooks.md#jvm-heap"
+
+      - alert: JvmGcPauseDurationHigh
+        expr: |
+          rate(jvm_gc_pause_seconds_sum[5m])
+          /
+          rate(jvm_gc_pause_seconds_count[5m]) > 0.5
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Average JVM GC pause duration > 500ms"
+          description: "JVM GC pausing for average of {{ $value }}s, causing latency spikes."
+          runbook: "docs/observability/runbooks.md#jvm-gc"
+
+  # ===========================================================================
+  # Reconciliation
+  # ===========================================================================
+  - name: reconciliation
+    rules:
+      - alert: ReconciliationManualReviewRequired
+        expr: |
+          sum(rate(reconciliation_manual_review_total[10m])) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Reconciliation items require manual review"
+          description: "Transactions flagged for manual review at {{ $value }}/s."
+          runbook: "docs/observability/runbooks.md#reconciliation-manual-review"
+
+  # ===========================================================================
+  # Notification System
+  # ===========================================================================
+  - name: notifications
+    rules:
+      - alert: NotificationHighFailureRate
+        expr: |
+          sum(rate(notification_failed_total[5m]))
+          /
+          (sum(rate(notification_created_total[5m])) + 0.001) > 0.15
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Notification delivery failure rate > 15%"
+          description: "{{ $value | humanizePercentage }} of notifications are failing."
+          runbook: "docs/observability/runbooks.md#notification-failures"
+
+  # ===========================================================================
+  # Application Liveness
+  # ===========================================================================
+  - name: application
+    rules:
+      - alert: ApplicationDown
+        expr: up{job="payment-ledger-platform"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Application instance is down"
+          description: "The payment-ledger-platform scrape target is unreachable."
+          runbook: "docs/observability/runbooks.md#application-down"
+
+      - alert: ReadinessProbeFailure
+        expr: |
+          spring_boot_readiness_state != 1
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Application readiness probe failing"
+          description: "The application readiness probe is failing. Traffic may not be served."
+          runbook: "docs/observability/runbooks.md#readiness-probe"

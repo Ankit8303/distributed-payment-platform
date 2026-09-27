@@ -1,0 +1,20 @@
+# Auto detect text files and normalize line endings
+* text=auto eol=lf
+
+# Force CRLF for Windows batch/cmd scripts
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Force LF for shell scripts and maven wrapper
+*.sh text eol=lf
+mvnw text eol=lf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.jar binary
+*.tar.gz binary

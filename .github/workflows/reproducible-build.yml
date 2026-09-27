@@ -1,0 +1,76 @@
+name: Reproducible Build Verification
+
+on:
+  push:
+    branches:
+      - main
+      - 'release/**'
+      - 'fix/**'
+  pull_request:
+    branches:
+      - main
+      - 'release/**'
+      - 'fix/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  verify-reproducibility:
+    name: Dual-Build Deterministic Verification
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Setup JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Make Scripts and Wrapper Executable
+        run: chmod +x mvnw scripts/*.sh
+
+      - name: Validate Output Timestamp Setting
+        run: ./scripts/verify-reproducibility.sh
+
+      - name: First Clean Build
+        run: |
+          ./mvnw -B clean package -DskipTests
+          mkdir -p build-1
+          cp target/*.jar build-1/
+          cd build-1
+          for f in *.jar; do
+            if [[ "$f" != original-* ]]; then
+              sha256sum "$f" > "$f.sha256"
+            fi
+          done
+
+      - name: Second Clean Build
+        run: |
+          ./mvnw -B clean package -DskipTests
+          mkdir -p build-2
+          cp target/*.jar build-2/
+          cd build-2
+          for f in *.jar; do
+            if [[ "$f" != original-* ]]; then
+              sha256sum "$f" > "$f.sha256"
+            fi
+          done
+
+      - name: Compare Build Artifact Hashes
+        run: |
+          echo "Comparing SHA-256 hashes between Build 1 and Build 2..."
+          HASH1=$(cat build-1/*.jar.sha256 | awk '{print $1}' | head -n1)
+          HASH2=$(cat build-2/*.jar.sha256 | awk '{print $1}' | head -n1)
+          echo "Build 1 SHA-256: $HASH1"
+          echo "Build 2 SHA-256: $HASH2"
+          if [[ "$HASH1" == "$HASH2" ]]; then
+            echo "[SUCCESS] Builds are bit-for-bit identical! Reproducible build verified."
+          else
+            echo "[ERROR] Build hashes differ: $HASH1 vs $HASH2. Non-deterministic build detected."
+            exit 1
+          fi

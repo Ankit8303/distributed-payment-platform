@@ -1,0 +1,23 @@
+{
+  "description": "Pre-configured synthetic payment request payloads for benchmark scenarios.",
+  "payloads": [
+    {
+      "name": "standard_retail_transfer",
+      "amount": 2500,
+      "currency": "USD",
+      "description": "Standard retail transfer benchmark"
+    },
+    {
+      "name": "micro_payment",
+      "amount": 100,
+      "currency": "USD",
+      "description": "Micro payment transfer benchmark"
+    },
+    {
+      "name": "merchant_settlement",
+      "amount": 150000,
+      "currency": "USD",
+      "description": "Merchant settlement benchmark"
+    }
+  ]
+}

@@ -1,0 +1,129 @@
+{
+  "project": "Distributed Payment & Ledger Platform",
+  "java": "21",
+  "spring_boot": "3.x",
+  "primary_stack": [
+    "Spring Security",
+    "PostgreSQL",
+    "Apache Kafka",
+    "Redis",
+    "Docker"
+  ],
+  "architecture": "modular monolith + event-driven integration",
+  "phases": [
+    {
+      "id": 0,
+      "skill": "00-phase-0-specification",
+      "purpose": "Phase 0 \u2014 Requirements, domain model, invariants, state machines, contracts, security model, NFRs, acceptance criteria, consistency review, and freeze."
+    },
+    {
+      "id": 1,
+      "skill": "01-bootstrap",
+      "purpose": "Bootstrap Java 21/Spring Boot 3.x/Maven configuration, local Docker environment, profiles, configuration boundaries, health checks, and repository conventions."
+    },
+    {
+      "id": 2,
+      "skill": "02-database",
+      "purpose": "Design and implement PostgreSQL schema, Flyway migrations, constraints, indexes, transaction boundaries, entities and repositories."
+    },
+    {
+      "id": 3,
+      "skill": "03-auth-security",
+      "purpose": "Implement authentication, authorization, JWT/session boundary, password handling, RBAC, resource ownership, rate limiting, secure error handling and audit controls."
+    },
+    {
+      "id": 4,
+      "skill": "04-accounts",
+      "purpose": "Implement customer/merchant account lifecycle, ownership, status, freezing, concurrency and account invariants."
+    },
+    {
+      "id": 5,
+      "skill": "05-payments",
+      "purpose": "Implement payment lifecycle, validation, idempotency contract, provider boundary, state machine, transaction semantics and APIs."
+    },
+    {
+      "id": 6,
+      "skill": "06-ledger",
+      "purpose": "Implement immutable double-entry ledger, Money value object, posting engine, balance calculations, constraints and financial invariants."
+    },
+    {
+      "id": 7,
+      "skill": "07-idempotency-concurrency",
+      "purpose": "Implement durable idempotency, database uniqueness, locking/versioning, race-condition handling, retry semantics and concurrency tests."
+    },
+    {
+      "id": 8,
+      "skill": "08-kafka-events",
+      "purpose": "Implement Kafka topics, event envelopes, producers, consumers, schema versioning, retries, DLQ strategy and idempotent consumers."
+    },
+    {
+      "id": 9,
+      "skill": "09-outbox",
+      "purpose": "Implement transactional outbox, publisher, polling/locking, retry/backoff, publishing guarantees and recovery tests."
+    },
+    {
+      "id": 10,
+      "skill": "10-redis",
+      "purpose": "Implement Redis only for auxiliary workloads such as rate limits, short-lived state and caching, with safe degradation and no financial source-of-truth use."
+    },
+    {
+      "id": 11,
+      "skill": "11-refunds-reversals",
+      "purpose": "Implement refund and reversal workflows using compensating financial transactions, eligibility, partial refunds, concurrency and auditability."
+    },
+    {
+      "id": 12,
+      "skill": "12-reconciliation",
+      "purpose": "Implement internal/provider reconciliation, discrepancy classification, evidence, reports, controlled correction flows and operational runbooks."
+    },
+    {
+      "id": 13,
+      "skill": "13-notifications",
+      "purpose": "Implement event-driven notification orchestration with idempotency, retryability, templates, delivery status and sensitive-data controls."
+    },
+    {
+      "id": 14,
+      "skill": "14-admin-operations",
+      "purpose": "Implement least-privilege operational/admin capabilities, investigation tools, freeze/unfreeze, audit access and controlled exceptional workflows."
+    },
+    {
+      "id": 15,
+      "skill": "15-testing",
+      "purpose": "Implement unit, repository, integration, API, security, Kafka, Redis, Testcontainers, concurrency, failure and contract testing."
+    },
+    {
+      "id": 16,
+      "skill": "16-observability",
+      "purpose": "Implement Actuator, Micrometer, structured logging, correlation IDs, metrics, health/readiness, operational dashboards and alert definitions."
+    },
+    {
+      "id": 17,
+      "skill": "17-production-hardening",
+      "purpose": "Harden containers, configuration, secrets, HTTP behavior, database access, dependencies, graceful shutdown, resource limits and deployment safety."
+    },
+    {
+      "id": 18,
+      "skill": "18-ci-security",
+      "purpose": "Implement CI quality gates, tests, static analysis, dependency/secret/container scanning, artifact reproducibility and branch protection guidance."
+    },
+    {
+      "id": 19,
+      "skill": "19-performance",
+      "purpose": "Design and execute load/performance tests, capacity modeling, query profiling, connection-pool tuning and evidence-based performance limits."
+    },
+    {
+      "id": 20,
+      "skill": "20-release-readiness",
+      "purpose": "Run complete production-readiness verification: security, resilience, backup/restore, reconciliation, observability, incident response, documentation and controlled rollout."
+    }
+  ],
+  "source_of_truth": "PostgreSQL financial records",
+  "money_representation": "integer minor units + currency",
+  "financial_rules": [
+    "double-entry balance",
+    "immutable posted ledger",
+    "durable idempotency",
+    "atomic financial state changes",
+    "compensating refunds/reversals"
+  ]
+}

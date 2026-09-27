@@ -1,0 +1,157 @@
+{
+  "uid": "infrastructure-jvm",
+  "title": "Payment Ledger — Infrastructure & JVM",
+  "tags": ["payment-ledger", "infrastructure", "jvm"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "30s",
+  "time": { "from": "now-3h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "JVM Heap Usage %",
+      "type": "gauge",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "jvm_memory_used_bytes{area=\"heap\"} / jvm_memory_max_bytes{area=\"heap\"} * 100"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent", "min": 0, "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 70 },
+              { "color": "red", "value": 85 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "JVM Non-Heap Usage",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 0 },
+      "targets": [
+        { "expr": "jvm_memory_used_bytes{area=\"nonheap\"}", "legendFormat": "NonHeap Used" },
+        { "expr": "jvm_memory_committed_bytes{area=\"nonheap\"}", "legendFormat": "NonHeap Committed" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "bytes" } }
+    },
+    {
+      "id": 3,
+      "title": "GC Pause Duration (avg)",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "rate(jvm_gc_pause_seconds_sum[5m]) / rate(jvm_gc_pause_seconds_count[5m])",
+          "legendFormat": "Avg GC Pause (s)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.1 },
+              { "color": "red", "value": 0.5 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "JVM Threads",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 0 },
+      "targets": [
+        { "expr": "jvm_threads_live_threads", "legendFormat": "Live" },
+        { "expr": "jvm_threads_daemon_threads", "legendFormat": "Daemon" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" } }
+    },
+    {
+      "id": 5,
+      "title": "HikariCP Connection Pool",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "targets": [
+        { "expr": "hikaricp_connections_active", "legendFormat": "Active" },
+        { "expr": "hikaricp_connections_idle", "legendFormat": "Idle" },
+        { "expr": "hikaricp_connections_pending", "legendFormat": "Pending Acquire" },
+        { "expr": "hikaricp_connections_max", "legendFormat": "Max Pool Size" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" } }
+    },
+    {
+      "id": 6,
+      "title": "HikariCP Connection Acquisition Time (p99)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(hikaricp_connection_acquired_nanos_bucket[5m])) by (le)) / 1e9",
+          "legendFormat": "p99 Acquisition (s)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.5 },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 7,
+      "title": "Redis Operations",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+      "targets": [
+        { "expr": "sum(rate(redis_cache_hit_total[1m])) by (cache)", "legendFormat": "Hit: {{ cache }}" },
+        { "expr": "sum(rate(redis_cache_miss_total[1m])) by (cache)", "legendFormat": "Miss: {{ cache }}" },
+        { "expr": "sum(rate(redis_operation_failure_total[1m]))", "legendFormat": "Failures" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps" } }
+    },
+    {
+      "id": 8,
+      "title": "Kafka Consumer Lag",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
+      "targets": [
+        {
+          "expr": "kafka_consumer_lag",
+          "legendFormat": "{{ topic }}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1000 },
+              { "color": "red", "value": 5000 }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

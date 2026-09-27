@@ -1,0 +1,54 @@
+{
+  "description": "Evidence-based Performance Budgets and SLO Thresholds for Payment Ledger Platform",
+  "thresholds": {
+    "health_check": {
+      "p50_ms": 15,
+      "p95_ms": 50,
+      "p99_ms": 100,
+      "max_error_rate_pct": 0.1
+    },
+    "authentication": {
+      "p50_ms": 45,
+      "p95_ms": 150,
+      "p99_ms": 300,
+      "max_error_rate_pct": 1.0
+    },
+    "account_lookup_cached": {
+      "p50_ms": 10,
+      "p95_ms": 40,
+      "p99_ms": 80,
+      "max_error_rate_pct": 0.5
+    },
+    "account_lookup_db": {
+      "p50_ms": 25,
+      "p95_ms": 80,
+      "p99_ms": 180,
+      "max_error_rate_pct": 0.5
+    },
+    "payment_creation_financial_path": {
+      "p50_ms": 85,
+      "p95_ms": 280,
+      "p99_ms": 650,
+      "max_error_rate_pct": 1.0,
+      "min_sustainable_tps": 120
+    },
+    "refund_creation": {
+      "p50_ms": 90,
+      "p95_ms": 290,
+      "p99_ms": 600,
+      "max_error_rate_pct": 1.0
+    },
+    "payout_creation": {
+      "p50_ms": 95,
+      "p95_ms": 300,
+      "p99_ms": 620,
+      "max_error_rate_pct": 1.0
+    },
+    "admin_search_bounded": {
+      "p50_ms": 60,
+      "p95_ms": 220,
+      "p99_ms": 450,
+      "max_error_rate_pct": 1.0
+    }
+  }
+}

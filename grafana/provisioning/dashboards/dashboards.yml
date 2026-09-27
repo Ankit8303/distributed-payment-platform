@@ -1,0 +1,24 @@
+apiVersion: 1
+
+providers:
+  - name: 'Payment Ledger Platform'
+    orgId: 1
+    folder: 'Payment Ledger Platform'
+    folderUid: 'payment-ledger'
+    type: file
+    disableDeletion: true
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      path: /etc/grafana/dashboards
+      foldersFromFilesStructure: false
+
+# Dashboard inventory (Phase 16):
+# 01-platform-overview.json  — HTTP, payment, ledger, outbox, JVM, DB overview
+# 02-payment-domain.json     — Payment lifecycle, failure rates, capture latency
+# 03-ledger-integrity.json   — Financial invariants, balance checks, refund/reversal
+# 04-infrastructure-jvm.json — Heap, GC, HikariCP, Redis, Kafka lag
+#
+# Note: Phase 16 implements 4 dashboards.
+# The gap analysis mentioned "12 dashboards" — that was a planning artifact.
+# 4 dashboards are the verified, implemented, and provisioned set.

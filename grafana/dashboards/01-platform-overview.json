@@ -1,0 +1,204 @@
+{
+  "uid": "platform-overview",
+  "title": "Payment Ledger — Platform Overview",
+  "tags": ["payment-ledger", "overview"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "HTTP Request Rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count[1m])) by (status)",
+          "legendFormat": "status={{ status }}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "color": { "mode": "palette-classic" } }
+      }
+    },
+    {
+      "id": 2,
+      "title": "HTTP p99 Latency",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(http_server_requests_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p99"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p95"
+        },
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(http_server_requests_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p50"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "s", "color": { "mode": "palette-classic" } }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Payment Rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "expr": "sum(rate(payment_created_total[1m]))",
+          "legendFormat": "Created"
+        },
+        {
+          "expr": "sum(rate(payment_settled_total[1m]))",
+          "legendFormat": "Settled"
+        },
+        {
+          "expr": "sum(rate(payment_failed_total[1m]))",
+          "legendFormat": "Failed"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "reqps" }
+      }
+    },
+    {
+      "id": 4,
+      "title": "Ledger Transactions",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
+      "targets": [
+        {
+          "expr": "sum(rate(ledger_transaction_posted_total[1m])) by (type)",
+          "legendFormat": "{{ type }}"
+        },
+        {
+          "expr": "sum(rate(ledger_transaction_failure_total[1m]))",
+          "legendFormat": "Failures"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "reqps" }
+      }
+    },
+    {
+      "id": 5,
+      "title": "Outbox Backlog",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+      "targets": [
+        {
+          "expr": "outbox_pending",
+          "legendFormat": "Pending"
+        },
+        {
+          "expr": "outbox_processing",
+          "legendFormat": "Processing"
+        },
+        {
+          "expr": "outbox_oldest_age",
+          "legendFormat": "Oldest Age (s)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short" }
+      }
+    },
+    {
+      "id": 6,
+      "title": "CRITICAL: Unbalanced Ledger Transactions",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "expr": "increase(ledger_unbalanced_transaction_total[24h])",
+          "legendFormat": ""
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        }
+      },
+      "options": { "colorMode": "background" }
+    },
+    {
+      "id": 7,
+      "title": "JVM Heap Usage",
+      "type": "gauge",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 16 },
+      "targets": [
+        {
+          "expr": "jvm_memory_used_bytes{area=\"heap\"} / jvm_memory_max_bytes{area=\"heap\"} * 100",
+          "legendFormat": "Heap %"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 70 },
+              { "color": "red", "value": 85 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 8,
+      "title": "DB Connection Pool",
+      "type": "timeseries",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 16 },
+      "targets": [
+        {
+          "expr": "hikaricp_connections_active",
+          "legendFormat": "Active"
+        },
+        {
+          "expr": "hikaricp_connections_idle",
+          "legendFormat": "Idle"
+        },
+        {
+          "expr": "hikaricp_connections_pending",
+          "legendFormat": "Pending"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short" }
+      }
+    },
+    {
+      "id": 9,
+      "title": "Kafka Consumer Lag",
+      "type": "timeseries",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 16 },
+      "targets": [
+        {
+          "expr": "kafka_consumer_lag",
+          "legendFormat": "{{ topic }}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short" }
+      }
+    }
+  ]
+}

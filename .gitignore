@@ -1,0 +1,68 @@
+# Compiled class files
+target/
+*.class
+
+# Package files
+*.jar
+*.war
+*.nar
+*.ear
+*.zip
+*.tar.gz
+*.rar
+
+# Log files
+*.log
+logs/
+
+# Virtual Machine crash logs
+hs_err_pid*
+replay_pid*
+
+# OS Generated Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE and Editor files
+.idea/
+*.iml
+.vscode/
+*.ipr
+*.iws
+.project
+.classpath
+.settings/
+
+# Environment files and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.jks
+
+# Agent Skills, Workflows, and Kits
+.agent/
+MASTER-KICKOFF-PROMPT.md
+KIT-CONTENTS.md
+ENHANCEMENT_SUMMARY.md
+litellm_config.yaml
+
+# Remediation & Audit Reports
+*REPORT*.md
+*report*.md
+*REPORTS*
+INITIAL_RECONNAISSANCE_REPORT.md
+PRODUCTION_READINESS_REPORT.md
+PRODUCTION_READINESS_BASELINE.md
+P1_CI_CD_REMEDIATION_REPORT.md
+P2_DATABASE_FLYWAY_INTEGRITY_REPORT.md
+docs/phase-reports/
+docs/portfolio/PORTFOLIO-GAP-ANALYSIS.md
+

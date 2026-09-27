@@ -1,0 +1,159 @@
+name: CI Quality Gates
+
+on:
+  push:
+    branches:
+      - main
+      - 'release/**'
+      - 'fix/**'
+  pull_request:
+    branches:
+      - main
+      - 'release/**'
+      - 'fix/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  validation-gates:
+    name: Pre-Flight & Migration Gates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Setup JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Make Scripts and Wrapper Executable
+        run: chmod +x mvnw scripts/*.sh
+
+      - name: Verify Clean Repository & No Secrets
+        run: ./scripts/verify-repo.sh
+
+      - name: Validate Database Migrations
+        run: ./scripts/validate-migrations.sh
+
+      - name: Validate Production Configurations & Containers
+        run: ./scripts/validate-configs.sh
+
+  build-and-test:
+    name: Build, Test & Coverage Gate
+    runs-on: ubuntu-latest
+    needs: validation-gates
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Setup JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Make Maven Wrapper Executable
+        run: chmod +x mvnw
+
+      - name: Enforce Architecture & Compile
+        run: ./mvnw -B clean test-compile
+
+      - name: Execute Full Test Suite & Coverage
+        run: ./mvnw -B verify
+
+      - name: Publish Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-test-reports
+          path: target/surefire-reports/
+          retention-days: 14
+
+      - name: Publish JaCoCo Coverage Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-coverage-report
+          path: target/site/jacoco/
+          retention-days: 14
+
+  reproducible-build:
+    name: Reproducible Build & Integrity
+    runs-on: ubuntu-latest
+    needs: validation-gates
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Setup JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Make Scripts and Wrapper Executable
+        run: chmod +x mvnw scripts/*.sh
+
+      - name: Verify Reproducibility Configuration
+        run: ./scripts/verify-reproducibility.sh
+
+      - name: Package Deterministic Artifact
+        run: ./mvnw -B package -DskipTests
+
+      - name: Generate and Verify SHA-256 Checksums
+        run: |
+          mkdir -p dist
+          cp target/*.jar dist/
+          cd dist
+          for f in *.jar; do
+            if [[ "$f" != original-* && -f "$f" ]]; then
+              sha256sum "$f" | tee "$f.sha256"
+            fi
+          done
+
+      - name: Upload Verified Release Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts
+          path: dist/
+          retention-days: 30
+
+  ci-quality-gate:
+    name: Quality Gate Evaluation
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [validation-gates, build-and-test, reproducible-build]
+    steps:
+      - name: Evaluate Pipeline Status
+        run: |
+          echo "======================================================="
+          echo " EVALUATING MANDATORY CI QUALITY GATES"
+          echo "======================================================="
+          VG_RESULT="${{ needs.validation-gates.result }}"
+          BT_RESULT="${{ needs.build-and-test.result }}"
+          RB_RESULT="${{ needs.reproducible-build.result }}"
+          echo "Pre-Flight & Migration Gates:    $VG_RESULT"
+          echo "Build, Test & Coverage Gate:     $BT_RESULT"
+          echo "Reproducible Build & Integrity:  $RB_RESULT"
+          if [[ "$VG_RESULT" != "success" || "$BT_RESULT" != "success" || "$RB_RESULT" != "success" ]]; then
+            echo "======================================================="
+            echo " [ERROR] One or more mandatory CI quality gates failed or were skipped!"
+            echo " CANNOT PROCEED TO MERGE."
+            echo "======================================================="
+            exit 1
+          fi
+          echo "======================================================="
+          echo " ALL CI QUALITY GATES COMPLETED WITH 100% PASS RATE"
+          echo " - Pre-flight & Migration Validation: PASSED"
+          echo " - Unit & Integration Test Suite:     PASSED"
+          echo " - JaCoCo Coverage Analysis:          PASSED"
+          echo " - Reproducible Build Verification:   PASSED"
+          echo " ELIGIBLE FOR MERGE TO PROTECTED BRANCH"
+          echo "======================================================="

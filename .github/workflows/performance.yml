@@ -1,0 +1,87 @@
+name: Performance & Load Testing Suite
+
+on:
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: 'Load test scenario to execute'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - baseline
+          - payment
+          - capacity
+          - soak
+      duration:
+        description: 'Test duration (e.g., 30s, 5m, 10m)'
+        required: false
+        default: '30s'
+  schedule:
+    - cron: '0 2 * * 0' # Weekly Sunday at 02:00 UTC
+
+jobs:
+  performance-benchmarks:
+    name: Run Performance Benchmarks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Setup JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Make Scripts and Wrapper Executable
+        run: chmod +x mvnw scripts/*.sh scripts/performance/*.sh
+
+      - name: Start Supporting Services (Postgres, Kafka, Redis)
+        run: |
+          docker compose up -d postgres kafka redis
+          echo "Waiting for services to become healthy..."
+          sleep 15
+
+      - name: Install k6 Load Testing Tool
+        run: |
+          sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69 || true
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update -qq
+          sudo apt-get install -y k6
+
+      - name: Compile and Package Application
+        run: ./mvnw -B package -DskipTests
+
+      - name: Start Spring Boot Application in Background
+        run: |
+          nohup java -XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -Dspring.profiles.active=prod,test -jar target/*.jar > app.log 2>&1 &
+          echo "Waiting for application to accept HTTP requests..."
+          for i in {1..30}; do
+            if curl -sf http://localhost:8080/actuator/health/liveness >/dev/null 2>&1; then
+              echo "Application is UP and Healthy!"
+              break
+            fi
+            sleep 2
+          done
+
+      - name: Execute Performance Suite
+        run: |
+          ./scripts/performance/run-baseline.sh
+          ./scripts/performance/run-load.sh
+
+      - name: Financial Invariant Verification Post-Load
+        run: |
+          echo "Verifying financial invariants after performance load..."
+          # Ensures no unbalanced transactions or orphan entries exist in PostgreSQL
+          ./mvnw -B test -Dtest=Phase15ComprehensiveVerificationIntegrationTest#testAD_ConcurrentOpposingLedgerTransfers_MaintainsBalance
+
+      - name: Archive Performance Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-benchmarks
+          path: performance/results/
+          retention-days: 30

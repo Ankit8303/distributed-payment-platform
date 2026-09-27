@@ -1,0 +1,169 @@
+name: Security Scanning & Container Hardening
+
+on:
+  push:
+    branches:
+      - main
+      - 'release/**'
+      - 'fix/**'
+  pull_request:
+    branches:
+      - main
+      - 'release/**'
+      - 'fix/**'
+  schedule:
+    - cron: '0 3 * * 1' # Weekly Monday at 03:00 UTC
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  secret-scan:
+    name: Secret & Credential Scanning
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Make Scripts Executable
+        run: chmod +x scripts/*.sh
+
+      - name: Execute Local Secret Scanner
+        run: ./scripts/scan-secrets.sh
+
+      - name: Run Gitleaks Action
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  dependency-scan:
+    name: Dependency Vulnerability Scanning
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Make Maven Wrapper Executable
+        run: chmod +x mvnw scripts/*.sh
+
+      - name: Setup JDK 21 and Maven Cache
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Resolve Maven Dependencies
+        run: ./mvnw -B -DskipTests dependency:go-offline
+
+      - name: Run Trivy Dependency Vulnerability Scanner
+        uses: aquasecurity/trivy-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL'
+          trivyignores: '.trivyignore'
+
+  container-scan:
+    name: Container Build & Vulnerability Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Setup JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Make Scripts and Wrapper Executable
+        run: chmod +x mvnw scripts/*.sh
+
+      - name: Build Application JAR
+        run: ./mvnw -B package -DskipTests
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Local Container Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/Dockerfile
+          push: false
+          load: true
+          tags: payment-ledger-platform:ci-test
+
+      - name: Scan Container Image with Trivy
+        uses: aquasecurity/trivy-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          image-ref: 'payment-ledger-platform:ci-test'
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL'
+          trivyignores: '.trivyignore'
+
+  sast-analysis:
+    name: Static Application Security Testing (SAST)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Run Semgrep SAST
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: >-
+            p/security-audit
+            p/owasp-top-ten
+            p/secrets
+
+  security-quality-gate:
+    name: Security Gate Evaluation
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [secret-scan, dependency-scan, container-scan, sast-analysis]
+    steps:
+      - name: Evaluate Security Gate
+        run: |
+          echo "======================================================="
+          echo " EVALUATING MANDATORY SECURITY GATES"
+          echo "======================================================="
+          SEC_RES="${{ needs.secret-scan.result }}"
+          DEP_RES="${{ needs.dependency-scan.result }}"
+          CON_RES="${{ needs.container-scan.result }}"
+          SAST_RES="${{ needs.sast-analysis.result }}"
+          echo "Secret & Credential Scan: $SEC_RES"
+          echo "Dependency Scan:          $DEP_RES"
+          echo "Container Scan:           $CON_RES"
+          echo "SAST Analysis:            $SAST_RES"
+          if [[ "$SEC_RES" != "success" || "$DEP_RES" != "success" || "$CON_RES" != "success" || "$SAST_RES" != "success" ]]; then
+            echo "======================================================="
+            echo " [ERROR] One or more mandatory security scanning gates failed or were skipped!"
+            echo " SECURITY POLICY VIOLATION DETECTED."
+            echo "======================================================="
+            exit 1
+          fi
+          echo "======================================================="
+          echo " SECURITY GATES EVALUATION COMPLETED"
+          echo " - Secret & Credential Scan: PASSED"
+          echo " - Dependency CVE Scan:      PASSED"
+          echo " - Container Image Scan:     PASSED"
+          echo " - SAST Audit:               PASSED"
+          echo " NO CRITICAL SECURITY BLOCKERS IDENTIFIED"
+          echo "======================================================="

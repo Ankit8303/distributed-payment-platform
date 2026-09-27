@@ -1,0 +1,52 @@
+payment-ledger-platform/
+├── .github/workflows/
+│   ├── ci.yml
+│   └── security.yml
+├── .agent/
+│   ├── architecture.md
+│   ├── coding-standards.md
+│   ├── domain-rules.md
+│   ├── security-rules.md
+│   ├── testing-rules.md
+│   ├── agent-workflow.md
+│   └── implementation-prompt.md
+├── docs/
+│   ├── architecture/
+│   ├── api/
+│   ├── database/
+│   ├── events/
+│   ├── security/
+│   ├── testing/
+│   ├── production/
+│   ├── operations/
+│   ├── performance/
+│   ├── compliance/
+│   ├── product/
+│   └── adr/
+├── src/main/java/com/paymentledger/
+│   ├── auth/
+│   ├── account/
+│   ├── payment/
+│   ├── ledger/
+│   ├── refund/
+│   ├── reconciliation/
+│   ├── notification/
+│   ├── admin/
+│   ├── outbox/
+│   ├── messaging/
+│   └── shared/
+├── src/main/resources/
+│   ├── application.yml
+│   ├── application-dev.yml
+│   ├── application-test.yml
+│   └── db/migration/
+├── src/test/java/com/paymentledger/
+├── docker/Dockerfile
+├── scripts/
+├── postman/
+├── .env.example
+├── .gitignore
+├── docker-compose.yml
+├── pom.xml
+├── README.md
+└── LICENSE

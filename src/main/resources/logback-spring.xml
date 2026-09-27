@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration scan="true" scanPeriod="30 seconds">
+
+    <!--
+      LOGGING POLICY & SECURITY CONSTRAINTS:
+      1. All logs must include correlationId and requestId from MDC when available.
+      2. Centralized LogMaskingConverter redacts passwords, tokens, card numbers, and secrets.
+      3. PostgreSQL remains the sole financial source of truth.
+      4. Logging failures must never fail business or financial transactions.
+    -->
+
+    <conversionRule conversionWord="clr" converterClass="org.springframework.boot.logging.logback.ColorConverter"/>
+    <conversionRule conversionWord="wex" converterClass="org.springframework.boot.logging.logback.WhitespaceThrowableProxyConverter"/>
+    <conversionRule conversionWord="wEx" converterClass="org.springframework.boot.logging.logback.ExtendedWhitespaceThrowableProxyConverter"/>
+    <conversionRule conversionWord="mask" converterClass="com.paymentledger.shared.logging.LogMaskingConverter"/>
+
+    <property name="CONSOLE_LOG_PATTERN"
+              value="%clr(%d{yyyy-MM-dd HH:mm:ss.SSS}){faint} %clr(%5p) %clr([corr=%X{correlationId:-none} req=%X{requestId:-none}]){magenta} %clr(${PID:- }){magenta} %clr(---){faint} %clr([%15.15t]){faint} %clr(%-40.40logger{39}){cyan} %clr(:){faint} %mask(%m)%n%wEx"/>
+
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>${CONSOLE_LOG_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!-- Environment profile overrides -->
+    <springProfile name="dev">
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+        <logger name="com.paymentledger" level="DEBUG"/>
+    </springProfile>
+
+    <springProfile name="test">
+        <root level="WARN">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+        <logger name="com.paymentledger" level="INFO"/>
+    </springProfile>
+
+    <springProfile name="prod,default">
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+        <logger name="com.paymentledger" level="INFO"/>
+    </springProfile>
+
+</configuration>
