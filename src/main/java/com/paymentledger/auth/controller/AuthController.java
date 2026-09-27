@@ -57,7 +57,7 @@ public class AuthController {
     public ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
         if (redisRateLimiter != null) {
             String key = RedisKeyNamespaces.authRateLimitKey(request.getEmail());
-            RateLimitResult result = redisRateLimiter.checkLimit(key, loginRateLimit, loginWindowSeconds, RateLimitPolicy.FAIL_OPEN);
+            RateLimitResult result = redisRateLimiter.checkLimit(key, loginRateLimit, loginWindowSeconds, RateLimitPolicy.FAIL_CLOSED);
             if (!result.allowed()) {
                 throw new RateLimitExceededException(
                         "Too many login attempts. Please retry later.",
