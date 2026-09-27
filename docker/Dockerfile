@@ -11,7 +11,7 @@ RUN apk --no-cache add ca-certificates curl tzdata && \
 WORKDIR /app
 
 # Copy packaged JAR artifact (built in reproducible CI/CD pipeline)
-ARG JAR_FILE=target/payment-ledger-platform-1.0.0-SNAPSHOT.jar
+ARG JAR_FILE=target/payment-ledger-platform.jar
 COPY ${JAR_FILE} app.jar
 
 # Enforce ownership and non-root execution

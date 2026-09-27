@@ -7,6 +7,8 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.kafka.KafkaContainer;
+import java.security.SecureRandom;
+import java.util.HexFormat;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -23,6 +25,7 @@ public abstract class AbstractIntegrationTest {
     protected static KafkaContainer kafka = new KafkaContainer("apache/kafka-native:3.8.0");
 
     static {
+        System.setProperty("TEST_JWT_SECRET", HexFormat.of().formatHex(new SecureRandom().generateSeed(32)));
         postgres.start();
         redis.start();
         kafka.start();

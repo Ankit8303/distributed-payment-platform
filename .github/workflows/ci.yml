@@ -65,7 +65,9 @@ jobs:
         run: ./mvnw -B clean test-compile
 
       - name: Execute Full Test Suite & Coverage
-        run: ./mvnw -B verify
+        run: |
+          echo "TEST_JWT_SECRET=$(openssl rand -base64 48)" >> "$GITHUB_ENV"
+          ./mvnw -B verify
 
       - name: Publish Test Results
         if: always()
