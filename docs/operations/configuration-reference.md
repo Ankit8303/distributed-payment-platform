@@ -36,6 +36,19 @@ All runtime configurations for the Distributed Payment & Ledger Platform adhere 
 
 ---
 
+### Redis transport and authentication security
+
+Production Redis connections must use TLS with certificate verification. Redis authentication must be enabled using the deployment environment's approved password or ACL/workload-identity mechanism.
+
+The production environment must provide:
+- `REDIS_HOST` and `REDIS_PORT` for the private Redis endpoint;
+- `REDIS_PASSWORD` or the approved equivalent authentication mechanism;
+- trusted CA/certificate material required to validate the Redis server certificate.
+
+Authentication credentials, private keys, and trust material must not be committed to the repository or baked into the application image.
+
+Plaintext Redis connections are prohibited for production. TLS and authentication are target-environment acceptance controls: the release process must verify the actual Redis endpoint, certificate chain, and authentication/authorization behavior before unrestricted production traffic.
+
 ## 3. Production Configuration Safeguards (`application-prod.yml`)
 
 ### PostgreSQL transport security

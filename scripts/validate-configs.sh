@@ -10,31 +10,40 @@ echo "==> Validating Production Configurations and Container Definitions in: $RE
 
 ERRORS=0
 
-# 1. Validate application-prod.yml exists
+# 1. Validate application-prod.yml
 PROD_YML="$REPO_ROOT/src/main/resources/application-prod.yml"
 if [[ ! -f "$PROD_YML" ]]; then
     echo " [ERROR] Missing src/main/resources/application-prod.yml"
     ERRORS=$((ERRORS + 1))
 else
-    # Verify show-sql is false
     if grep -E "show-sql:\s*true" "$PROD_YML" >/dev/null; then
         echo " [ERROR] application-prod.yml must have show-sql: false"
         ERRORS=$((ERRORS + 1))
     fi
-    # Verify graceful shutdown is enabled
     if ! grep -E "shutdown:\s*graceful" "$PROD_YML" >/dev/null; then
         echo " [ERROR] application-prod.yml must enable server.shutdown: graceful"
         ERRORS=$((ERRORS + 1))
     fi
-    # Verify sensitive actuator endpoints are not exposed
-    if grep -E "include:\s*['\"]?\*['\"]?" "$PROD_YML" >/dev/null; then
-        echo " [ERROR] application-prod.yml must not expose wildcard actuator endpoints ('*')"
+    if grep -Fq 'include: "*"' "$PROD_YML" || grep -Fq "include: '*'" "$PROD_YML"; then
+        echo " [ERROR] application-prod.yml must not expose wildcard actuator endpoints"
         ERRORS=$((ERRORS + 1))
     fi
-    # Reject explicit plaintext PostgreSQL connections in the production profile.
-    # TLS certificate/hostname verification remains a target-environment requirement.
+
+    # Reject explicit plaintext PostgreSQL connections.
     if grep -Eiq 'jdbc:postgresql:[^[:space:]]*sslmode[[:space:]]*=[[:space:]]*disable' "$PROD_YML"; then
         echo " [ERROR] application-prod.yml must not explicitly disable PostgreSQL TLS (sslmode=disable)"
+        ERRORS=$((ERRORS + 1))
+    fi
+
+    # Production Redis must explicitly enable TLS.
+    if ! grep -Fq "ssl:" "$PROD_YML" || ! grep -Fq "enabled: true" "$PROD_YML"; then
+        echo " [ERROR] application-prod.yml must explicitly enable Redis TLS"
+        ERRORS=$((ERRORS + 1))
+    fi
+
+    # Production Redis authentication must be supplied by the environment.
+    if ! grep -Fq 'password: ${REDIS_PASSWORD}' "$PROD_YML"; then
+        echo " [ERROR] application-prod.yml must require REDIS_PASSWORD for Redis authentication"
         ERRORS=$((ERRORS + 1))
     fi
 fi
@@ -61,7 +70,6 @@ if [[ ! -f "$COMPOSE_FILE" ]]; then
     echo " [ERROR] Missing docker-compose.yml"
     ERRORS=$((ERRORS + 1))
 else
-    # Check for healthchecks on critical services
     if ! grep -A 20 "postgres:" "$COMPOSE_FILE" | grep -q "healthcheck:"; then
         echo " [ERROR] docker-compose.yml missing healthcheck for postgres"
         ERRORS=$((ERRORS + 1))
