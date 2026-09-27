@@ -11,6 +11,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.UUID;
+import java.security.SecureRandom;
+import java.util.HexFormat;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -25,7 +27,7 @@ class JwtServiceTest {
     @BeforeEach
     void setUp() {
         jwtProperties = new JwtProperties();
-        jwtProperties.setSecret("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
+        jwtProperties.setSecret(HexFormat.of().formatHex(new SecureRandom().generateSeed(32)));
         jwtProperties.setAccessTokenExpirationMs(900000); // 15 min
 
         jwtService = new JwtService(jwtProperties);
