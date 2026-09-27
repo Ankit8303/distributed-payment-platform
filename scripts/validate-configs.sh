@@ -31,6 +31,12 @@ else
         echo " [ERROR] application-prod.yml must not expose wildcard actuator endpoints ('*')"
         ERRORS=$((ERRORS + 1))
     fi
+    # Reject explicit plaintext PostgreSQL connections in the production profile.
+    # TLS certificate/hostname verification remains a target-environment requirement.
+    if grep -Eiq 'jdbc:postgresql:[^[:space:]]*sslmode[[:space:]]*=[[:space:]]*disable' "$PROD_YML"; then
+        echo " [ERROR] application-prod.yml must not explicitly disable PostgreSQL TLS (sslmode=disable)"
+        ERRORS=$((ERRORS + 1))
+    fi
 fi
 
 # 2. Validate docker/Dockerfile
