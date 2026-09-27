@@ -10,183 +10,39 @@ echo "==> Validating Production Configurations and Container Definitions in: $RE
 
 ERRORS=0
 
-# 1. Validate application-prod.yml exists
+# 1. Validate application-prod.yml
 PROD_YML="$REPO_ROOT/src/main/resources/application-prod.yml"
 if [[ ! -f "$PROD_YML" ]]; then
     echo " [ERROR] Missing src/main/resources/application-prod.yml"
     ERRORS=$((ERRORS + 1))
 else
-    # Verify show-sql is false
     if grep -E "show-sql:\s*true" "$PROD_YML" >/dev/null; then
         echo " [ERROR] application-prod.yml must have show-sql: false"
         ERRORS=$((ERRORS + 1))
     fi
-    # Verify graceful shutdown is enabled
     if ! grep -E "shutdown:\s*graceful" "$PROD_YML" >/dev/null; then
         echo " [ERROR] application-prod.yml must enable server.shutdown: graceful"
         ERRORS=$((ERRORS + 1))
     fi
-    # Verify sensitive actuator endpoints are not exposed
-    if grep -E "include:\s*['\"]?\*['\"]?" "$PROD_YML" >/dev/null; then
+    if grep -E "include:\s*['"]?\*['"]?" "$PROD_YML" >/dev/null; then
         echo " [ERROR] application-prod.yml must not expose wildcard actuator endpoints ('*')"
         ERRORS=$((ERRORS + 1))
     fi
-    # Reject explicit plaintext PostgreSQL connections in the production profile.
-    # TLS certificate/hostname verification remains a target-environment requirement.
+
+    # Reject explicit plaintext PostgreSQL connections.
     if grep -Eiq 'jdbc:postgresql:[^[:space:]]*sslmode[[:space:]]*=[[:space:]]*disable' "$PROD_YML"; then
         echo " [ERROR] application-prod.yml must not explicitly disable PostgreSQL TLS (sslmode=disable)"
         ERRORS=$((ERRORS + 1))
     fi
 
     # Production Redis must explicitly enable TLS.
-    if ! grep -Eq '^[[:space:]]*ssl:[[:space:]]*
-fi
-
-# 2. Validate docker/Dockerfile
-DOCKERFILE="$REPO_ROOT/docker/Dockerfile"
-if [[ ! -f "$DOCKERFILE" ]]; then
-    echo " [ERROR] Missing docker/Dockerfile"
-    ERRORS=$((ERRORS + 1))
-else
-    if ! grep -E "^USER\s+appuser" "$DOCKERFILE" >/dev/null; then
-        echo " [ERROR] docker/Dockerfile must run as non-root user (USER appuser)"
-        ERRORS=$((ERRORS + 1))
-    fi
-    if ! grep -E "^HEALTHCHECK" "$DOCKERFILE" >/dev/null; then
-        echo " [ERROR] docker/Dockerfile must define a HEALTHCHECK instruction"
-        ERRORS=$((ERRORS + 1))
-    fi
-fi
-
-# 3. Validate docker-compose.yml
-COMPOSE_FILE="$REPO_ROOT/docker-compose.yml"
-if [[ ! -f "$COMPOSE_FILE" ]]; then
-    echo " [ERROR] Missing docker-compose.yml"
-    ERRORS=$((ERRORS + 1))
-else
-    # Check for healthchecks on critical services
-    if ! grep -A 20 "postgres:" "$COMPOSE_FILE" | grep -q "healthcheck:"; then
-        echo " [ERROR] docker-compose.yml missing healthcheck for postgres"
-        ERRORS=$((ERRORS + 1))
-    fi
-    if ! grep -A 25 "kafka:" "$COMPOSE_FILE" | grep -q "healthcheck:"; then
-        echo " [ERROR] docker-compose.yml missing healthcheck for kafka"
-        ERRORS=$((ERRORS + 1))
-    fi
-    if ! grep -A 15 "redis:" "$COMPOSE_FILE" | grep -q "healthcheck:"; then
-        echo " [ERROR] docker-compose.yml missing healthcheck for redis"
-        ERRORS=$((ERRORS + 1))
-    fi
-fi
-
-if [[ $ERRORS -gt 0 ]]; then
-    echo "==> Configuration validation FAILED: $ERRORS issues detected."
-    exit 1
-else
-    echo "==> Configuration validation PASSED: Production configurations and containers verified."
-    exit 0
-fi
- "$PROD_YML" ||        ! grep -Eq '^[[:space:]]*enabled:[[:space:]]*true[[:space:]]*
-fi
-
-# 2. Validate docker/Dockerfile
-DOCKERFILE="$REPO_ROOT/docker/Dockerfile"
-if [[ ! -f "$DOCKERFILE" ]]; then
-    echo " [ERROR] Missing docker/Dockerfile"
-    ERRORS=$((ERRORS + 1))
-else
-    if ! grep -E "^USER\s+appuser" "$DOCKERFILE" >/dev/null; then
-        echo " [ERROR] docker/Dockerfile must run as non-root user (USER appuser)"
-        ERRORS=$((ERRORS + 1))
-    fi
-    if ! grep -E "^HEALTHCHECK" "$DOCKERFILE" >/dev/null; then
-        echo " [ERROR] docker/Dockerfile must define a HEALTHCHECK instruction"
-        ERRORS=$((ERRORS + 1))
-    fi
-fi
-
-# 3. Validate docker-compose.yml
-COMPOSE_FILE="$REPO_ROOT/docker-compose.yml"
-if [[ ! -f "$COMPOSE_FILE" ]]; then
-    echo " [ERROR] Missing docker-compose.yml"
-    ERRORS=$((ERRORS + 1))
-else
-    # Check for healthchecks on critical services
-    if ! grep -A 20 "postgres:" "$COMPOSE_FILE" | grep -q "healthcheck:"; then
-        echo " [ERROR] docker-compose.yml missing healthcheck for postgres"
-        ERRORS=$((ERRORS + 1))
-    fi
-    if ! grep -A 25 "kafka:" "$COMPOSE_FILE" | grep -q "healthcheck:"; then
-        echo " [ERROR] docker-compose.yml missing healthcheck for kafka"
-        ERRORS=$((ERRORS + 1))
-    fi
-    if ! grep -A 15 "redis:" "$COMPOSE_FILE" | grep -q "healthcheck:"; then
-        echo " [ERROR] docker-compose.yml missing healthcheck for redis"
-        ERRORS=$((ERRORS + 1))
-    fi
-fi
-
-if [[ $ERRORS -gt 0 ]]; then
-    echo "==> Configuration validation FAILED: $ERRORS issues detected."
-    exit 1
-else
-    echo "==> Configuration validation PASSED: Production configurations and containers verified."
-    exit 0
-fi
- "$PROD_YML"; then
+    if ! grep -Eq '^[[:space:]]*ssl:[[:space:]]*$' "$PROD_YML" ||        ! grep -Eq '^[[:space:]]*enabled:[[:space:]]*true[[:space:]]*$' "$PROD_YML"; then
         echo " [ERROR] application-prod.yml must explicitly enable Redis TLS"
         ERRORS=$((ERRORS + 1))
     fi
 
     # Production Redis authentication must be supplied by the environment.
-    if ! grep -Eq '^[[:space:]]*password:[[:space:]]*\$\{REDIS_PASSWORD\}[[:space:]]*
-fi
-
-# 2. Validate docker/Dockerfile
-DOCKERFILE="$REPO_ROOT/docker/Dockerfile"
-if [[ ! -f "$DOCKERFILE" ]]; then
-    echo " [ERROR] Missing docker/Dockerfile"
-    ERRORS=$((ERRORS + 1))
-else
-    if ! grep -E "^USER\s+appuser" "$DOCKERFILE" >/dev/null; then
-        echo " [ERROR] docker/Dockerfile must run as non-root user (USER appuser)"
-        ERRORS=$((ERRORS + 1))
-    fi
-    if ! grep -E "^HEALTHCHECK" "$DOCKERFILE" >/dev/null; then
-        echo " [ERROR] docker/Dockerfile must define a HEALTHCHECK instruction"
-        ERRORS=$((ERRORS + 1))
-    fi
-fi
-
-# 3. Validate docker-compose.yml
-COMPOSE_FILE="$REPO_ROOT/docker-compose.yml"
-if [[ ! -f "$COMPOSE_FILE" ]]; then
-    echo " [ERROR] Missing docker-compose.yml"
-    ERRORS=$((ERRORS + 1))
-else
-    # Check for healthchecks on critical services
-    if ! grep -A 20 "postgres:" "$COMPOSE_FILE" | grep -q "healthcheck:"; then
-        echo " [ERROR] docker-compose.yml missing healthcheck for postgres"
-        ERRORS=$((ERRORS + 1))
-    fi
-    if ! grep -A 25 "kafka:" "$COMPOSE_FILE" | grep -q "healthcheck:"; then
-        echo " [ERROR] docker-compose.yml missing healthcheck for kafka"
-        ERRORS=$((ERRORS + 1))
-    fi
-    if ! grep -A 15 "redis:" "$COMPOSE_FILE" | grep -q "healthcheck:"; then
-        echo " [ERROR] docker-compose.yml missing healthcheck for redis"
-        ERRORS=$((ERRORS + 1))
-    fi
-fi
-
-if [[ $ERRORS -gt 0 ]]; then
-    echo "==> Configuration validation FAILED: $ERRORS issues detected."
-    exit 1
-else
-    echo "==> Configuration validation PASSED: Production configurations and containers verified."
-    exit 0
-fi
- "$PROD_YML"; then
+    if ! grep -Eq '^[[:space:]]*password:[[:space:]]*\$\{REDIS_PASSWORD\}[[:space:]]*$' "$PROD_YML"; then
         echo " [ERROR] application-prod.yml must require REDIS_PASSWORD for Redis authentication"
         ERRORS=$((ERRORS + 1))
     fi
@@ -214,7 +70,6 @@ if [[ ! -f "$COMPOSE_FILE" ]]; then
     echo " [ERROR] Missing docker-compose.yml"
     ERRORS=$((ERRORS + 1))
 else
-    # Check for healthchecks on critical services
     if ! grep -A 20 "postgres:" "$COMPOSE_FILE" | grep -q "healthcheck:"; then
         echo " [ERROR] docker-compose.yml missing healthcheck for postgres"
         ERRORS=$((ERRORS + 1))
