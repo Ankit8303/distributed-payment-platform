@@ -40,7 +40,7 @@ All runtime configurations for the Distributed Payment & Ledger Platform adhere 
 
 Production Kafka client connections must use a TLS-protected listener. The production deployment contract must provide an authenticated Kafka connection using a security protocol such as `SASL_SSL` (or an equivalent TLS-protected authenticated mechanism approved for the target Kafka platform). Plaintext production client listeners are prohibited.
 
-The production environment must supply:
+The production environment must provide:
 - a TLS-protected Kafka bootstrap endpoint;
 - the approved SASL/authentication mechanism and credentials or workload identity;
 - trusted CA material required to validate the broker certificate;
@@ -49,6 +49,20 @@ The production environment must supply:
 Authentication credentials and private key material must not be committed to the repository or baked into the application image. Trust material must be supplied through the deployment environment or approved secret/trust-management mechanism.
 
 The exact Kafka authentication mechanism is deployment-specific; repository configuration must not claim environment-level authentication is verified until the target broker configuration and client connection have been tested.
+
+### Redis transport and authentication security
+
+Production Redis connections must use TLS with certificate verification. Redis authentication must be enabled using the deployment environment's approved password or ACL/workload-identity mechanism.
+
+The production environment must provide:
+- `REDIS_HOST` and `REDIS_PORT` for the private Redis endpoint;
+- `REDIS_PASSWORD` or the approved equivalent authentication mechanism;
+- trusted CA/certificate material required to validate the Redis server certificate.
+
+Authentication credentials, private keys, and trust material must not be committed to the repository or baked into the application image.
+
+Plaintext Redis connections are prohibited for production. TLS and authentication are target-environment acceptance controls: the release process must verify the actual Redis endpoint, certificate chain, and authentication/authorization behavior before unrestricted production traffic.
+
 ## 3. Production Configuration Safeguards (`application-prod.yml`)
 
 ### PostgreSQL transport security
