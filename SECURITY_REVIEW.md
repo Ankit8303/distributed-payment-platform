@@ -1,103 +1,119 @@
-# Comprehensive Security Review & Threat Model
+# Security Audit — Distributed Payment & Ledger Platform
 
 **Repository:** `Ankit8303/distributed-payment-platform`  
-**Security Standard:** OWASP Top 10 API Security & CWE Top 25  
-**Review Type:** Staff Engineering Architecture & Static Analysis Audit  
-**Date:** September 2026
+**Review date:** 2026-09-27  
+**Review scope:** Repository source, CI/CD workflows, production configuration, container definition, security tests, and GitHub repository state.  
+**Reference standard:** OWASP ASVS 5.0 and OWASP API Security principles. ASVS is used as a verification framework; this document is not a regulatory certification.  
 
----
+## Auditor Status
 
-## 1. Executive Summary
+**Repository security gate:** PASS on hardened PR #1 after remediation.  
+**Production authorization:** NOT AUTOMATIC. A controlled staging/canary deployment and environment-specific operational verification remain required.
 
-A comprehensive security audit of the backend application was conducted across all controllers, service boundaries, database access paths, and authentication/authorization filters. Special emphasis was placed on OWASP API Security Top 10 threats, specifically Broken Object Level Authorization (BOLA/IDOR), Broken Function Level Authorization (BFLA), Unrestricted Resource Consumption, and Credential/Token exposure.
+OWASP ASVS provides a basis for testing application security controls rather than merely documenting intended controls. citeturn0search0
 
-All critical attack scenarios have verified automated integration tests in the test suite (`SecurityIntegrationTest`, `Phase6HardeningIntegrationTest`, `Phase7HardeningIntegrationTest`, `Phase11FinancialOperationsIntegrationTest`).
+## Findings and Remediation
 
----
+### SEC-001 — Hard-coded development credentials in Compose
+**Severity:** HIGH  
+**Status:** REMEDIATED
 
-## 2. OWASP API Security Top 10 Evaluation & Findings
+The original repository contained development PostgreSQL and Grafana passwords directly in `docker-compose.yml`. This caused the initial Gitleaks security workflow to fail.
 
-### API1:2023 - Broken Object Level Authorization (BOLA / IDOR)
-- **Status:** **PASS / MITIGATED**
-- **Affected Surface:** `/api/v1/accounts/{id}`, `/api/v1/payments/{id}`, `/api/v1/payouts/{id}`, `/api/v1/refunds/{id}`
-- **Attack Scenario:** Attacker authenticates as Customer A and issues `GET /api/v1/accounts/{id_of_customer_b}` or `GET /api/v1/payouts/{id_of_customer_b}` attempting to leak financial balances or beneficiary banking coordinates.
-- **Engineered Control:** Every lookup derives caller identity from `SecurityContextHolder` JWT principal and compares against `account.getOwnerId()` or payment counterparty IDs (`payer.getOwnerId()` / `payee.getOwnerId()`). If mismatch occurs, access is rejected with HTTP 404/403.
-- **Verification Evidence:** `Phase6HardeningIntegrationTest` and `SecurityIntegrationTest` explicitly execute cross-user queries and assert access is denied.
+**Remediation:** Credentials are now required through environment variables; `.env.example` contains placeholders rather than usable secrets.
 
-### API2:2023 - Broken Authentication
-- **Status:** **PASS / MITIGATED**
-- **Affected Surface:** `/api/v1/auth/login`, `/api/v1/auth/refresh`, JWT filter chain
-- **Attack Scenario:** Attacker submits expired tokens, forged signature JWTs, or brute-forces user passwords.
-- **Engineered Control:**
-  - Passwords hashed using standard BCrypt algorithm with secure salt.
-  - Stateless HMAC-SHA256 JWT validation checking expiration, subject, and issuer.
-  - Refresh tokens are cryptographically generated and stored with revocable status.
-  - Sensitive credentials never written to log files (`@ToString.Exclude` and log sanitization).
-- **Verification Evidence:** `SecurityIntegrationTest` validates expired token rejection, tampered signature rejection, and authentication failure codes.
+**Verification:** Hardened PR security workflow passed secret scanning.
 
-### API3:2023 - Broken Object Property Level Authorization
-- **Status:** **PASS / MITIGATED**
-- **Affected Surface:** Account and Payment Creation DTOs (`CreatePaymentRequest`, `CreatePayoutRequest`)
-- **Attack Scenario:** Attacker injects unauthorized fields (e.g. `balance`, `role`, `status: 'SETTLED'`) into JSON payload to artificially credit funds.
-- **Engineered Control:** Strict DTO segregation. Entity models are never directly bound from HTTP bodies. Jackson rejects unknown fields; internal financial states (`SETTLED`, `ACTIVE`) can only be set by transactional service logic.
-- **Verification Evidence:** Unit tests for request DTO deserialization and validation.
+### SEC-002 — Authentication rate limiting failed open
+**Severity:** HIGH  
+**Status:** REMEDIATED
 
-### API4:2023 - Unrestricted Resource Consumption
-- **Status:** **PASS / MITIGATED**
-- **Affected Surface:** Financial endpoints, collection pagination, body size
-- **Attack Scenario:** Attacker floods `/api/v1/payments` with 10,000 requests/sec or requests `?pageSize=10000000` to exhaust JVM memory or connection pool.
-- **Engineered Control:**
-  - Redis sliding-window distributed rate limiting (`RedisRateLimitingFilter`).
-  - Strict pagination boundaries: `PageUtils` enforces maximum page size cap (`MAX_PAGE_SIZE = 100`).
-  - Spring Boot Tomcat maximum request payload size enforced (10MB limit).
-- **Verification Evidence:** `RedisAuxiliaryIntegrationTest` and `PageUtilsTest`.
+Authentication login rate limiting used `FAIL_OPEN`, allowing Redis failure to remove the credential-stuffing control.
 
-### API5:2023 - Broken Function Level Authorization (BFLA)
-- **Status:** **PASS / MITIGATED**
-- **Affected Surface:** Administrative endpoints `/api/v1/admin/**`
-- **Attack Scenario:** Regular customer calls `POST /api/v1/admin/accounts/{id}/freeze` or `POST /api/v1/admin/adjustments` to manipulate platform ledger.
-- **Engineered Control:** Spring Method Security (`@EnableMethodSecurity`) enforces `@PreAuthorize("hasAnyRole('ADMIN', 'SYSTEM')")` on all admin controller classes and methods. Non-admin tokens yield HTTP 403 Forbidden.
-- **Verification Evidence:** `SecurityIntegrationTest` asserts Customer and Merchant roles receive 403 on all `/admin/*` paths.
+**Remediation:** Authentication rate limiting now uses `FAIL_CLOSED`.
 
-### API6:2023 - Unrestricted Access to Sensitive Business Flows
-- **Status:** **PASS / MITIGATED**
-- **Affected Surface:** Money movement endpoints (Payments, Payouts, Refunds)
-- **Attack Scenario:** Automated bot scripts rapid-fire duplicate payout requests to exploit race conditions before ledger balances settle.
-- **Engineered Control:**
-  - Mandatory `Idempotency-Key` header with database-backed atomic reservations (`uk_idempotency_key_scope`).
-  - Payout reservation pattern (B5.1) deducts active reservations immediately in DB transaction 1.
-  - Lexicographical account locking prevents deadlock and double-spend concurrency.
-- **Verification Evidence:** Concurrency tests in `Phase11FinancialOperationsIntegrationTest` and `Phase15ComprehensiveVerificationIntegrationTest`.
+**Verification:** Security test suite passed after the change.
 
-### API7:2023 - Server Side Request Forgery (SSRF)
-- **Status:** **PASS / MITIGATED**
-- **Affected Surface:** External provider integration and Webhook dispatch
-- **Attack Scenario:** Attacker specifies an internal IP (e.g., `http://169.254.169.254` or `http://localhost:5432`) as a webhook destination or gateway URL to probe internal network infrastructure.
-- **Engineered Control:** Provider URLs are hardcoded in application configuration (`application.yml`) and cannot be overridden by client requests. Webhook URLs are validated against localhost and private IPv4 ranges (RFC 1918).
-- **Verification Evidence:** Webhook URL validator unit and integration tests.
+### SEC-003 — Stale security review claimed a global rate-limiting filter
+**Severity:** MEDIUM  
+**Status:** DOCUMENTATION CORRECTED
 
-### API8:2023 - Security Misconfiguration
-- **Status:** **PASS / MITIGATED**
-- **Affected Surface:** Actuator endpoints, error responses, HTTP security headers
-- **Attack Scenario:** Attacker probes `/actuator/env` to extract database credentials or triggers 500 error to inspect raw stack traces and SQL queries.
-- **Engineered Control:**
-  - Sensitive actuator endpoints disabled or restricted to `ADMIN`.
-  - Global exception handler maps exceptions to sanitized `ApiErrorResponse` without exposing stack traces or database table structures.
-  - Security headers configured: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Strict-Transport-Security`.
-- **Verification Evidence:** `verify-ci.ps1` Gate 4 and Actuator security tests.
+Repository inspection found authentication-specific Redis rate limiting, but no implementation matching the previously documented `RedisRateLimitingFilter` global control. The prior review also described a 10 MB production request limit while the hardened production profile uses 2 MB.
 
----
+**Remediation:** This document records only controls verified in the current source tree. The implementation should not be represented as globally rate-limited until such a filter is actually implemented and tested.
 
-## 3. Secret Detection & Static Code Analysis Findings
+### SEC-004 — Production Flyway auto-baselining
+**Severity:** HIGH  
+**Status:** REMEDIATED
 
-| Gate | Target Scanned | Findings | Status |
-| :--- | :--- | :--- | :---: |
-| **Gate B: Secret Detection** | Entire repository git history & files | 0 hardcoded credentials, 0 private keys, 0 production API tokens | **PASS** |
-| **Dependency CVE Scan** | Maven `pom.xml` dependencies | Spring Boot 3.3.4, Java 21, JJWT 0.12.6, Testcontainers 1.20.1 | **PASS** |
-| **Database Constraints** | Flyway migrations `V1` to `V12` | Schema-level checks, immutable ledger trigger, strict foreign keys | **PASS** |
+The production profile previously enabled `baseline-on-migrate: true`. That behavior can silently establish a baseline against a non-empty database instead of forcing an explicit migration-history decision.
 
----
+**Remediation:** Production now uses `baseline-on-migrate: false`. Baseline operations, when genuinely required, must be performed as an explicit controlled migration procedure.
 
-## 4. Verification Conclusion
+### SEC-005 — CI security gates were not sufficient to protect main
+**Severity:** HIGH  
+**Status:** PARTIALLY REMEDIATED
 
-The platform complies with standard financial backend security requirements and OWASP API Security Top 10 recommendations. No critical or high security blockers exist in the codebase.
+The repository had security workflows, but `main` was not protected and had no required status checks at audit time.
+
+**Remediation:** The hardened PR establishes passing CI/security checks. GitHub branch protection/ruleset configuration still requires an owner/admin action because the available repository integration does not expose a write operation for branch protection.
+
+**Required repository policy:**
+- Require pull requests before merging.
+- Require the CI quality gate.
+- Require the security quality gate.
+- Require reproducible-build verification.
+- Require conversation resolution/review as appropriate.
+- Disable force pushes to `main`.
+- Restrict deletion of `main`.
+
+### SEC-006 — Supply-chain provenance was incomplete
+**Severity:** MEDIUM  
+**Status:** REMEDIATED IN RELEASE PIPELINE
+
+The repository previously generated checksums but did not establish signed provenance for release artifacts.
+
+**Remediation:** The production release workflow now builds a versioned container, generates an SBOM, and creates signed GitHub artifact/container attestations. GitHub documents artifact attestations as signed provenance linking an artifact to its workflow, repository, commit, and build context. citeturn1search0turn1search1
+
+SLSA Build L1 requires provenance describing how a package was built; higher levels increase provenance authenticity and build isolation. citeturn0search3turn0search13
+
+## Verified Security Controls
+
+The hardened PR passed:
+
+- Secret and credential scanning.
+- Maven dependency vulnerability scanning.
+- Container vulnerability scanning.
+- Semgrep SAST.
+- Aggregate security gate.
+- Repository cleanliness and secret checks.
+- Production configuration validation.
+- Full Maven integration/unit test suite.
+- Reproducible-build verification.
+
+The security workflow therefore provides executable evidence for the above gates rather than relying solely on documentation.
+
+## Residual Risks
+
+### R-001 — Global API abuse protection
+Authentication abuse is rate-limited. A separate, explicitly tested global/API-class rate limiting policy should be introduced before exposing high-value endpoints to hostile public traffic.
+
+### R-002 — Production environment controls
+TLS termination, database TLS verification, Kafka authentication/encryption, Redis authentication/TLS, secret-manager integration, network policy, WAF/API gateway policy, and cloud IAM remain deployment-environment concerns.
+
+### R-003 — Disaster recovery evidence
+Repository runbooks describe backup/restore and recovery procedures. Actual production readiness still requires an executed restore drill against the target infrastructure with measured RPO/RTO.
+
+### R-004 — Capacity evidence
+Phase 19 records 185 TPS sustainable capacity, 235 TPS observed peak load, and approximately 220–240 TPS saturation on a reference environment. These measurements must not be treated as universal cloud production limits.
+
+### R-005 — Regulatory scope
+This audit does not certify PCI DSS, SOC 2, ISO 27001, RBI authorization, money-transmitter licensing, or any other regulatory requirement. Those are separate organizational/legal assessments.
+
+## Auditor Decision
+
+**Code/repository gate:** READY_FOR_CONTROLLED_ROLLOUT after the hardened PR passes all mandatory checks.
+
+**Unrestricted production traffic:** NOT YET CERTIFIED by this repository audit alone.
+
+The correct next boundary is target-environment verification: deploy the exact attested release artifact to staging, execute smoke tests, migration validation, backup/restore verification, reconciliation checks, health/readiness checks, and controlled traffic tests before production exposure.
