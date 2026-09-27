@@ -23,6 +23,7 @@ public final class RedisKeyNamespaces {
     public static final String CACHE_ACCOUNT_PREFIX = "cache:account:v1:";
     public static final String RATE_LIMIT_AUTH_PREFIX = "rate-limit:auth:v1:";
     public static final String RATE_LIMIT_API_PREFIX = "rate-limit:api:v1:";
+    public static final String RATE_LIMIT_FINANCIAL_PREFIX = "rate-limit:financial:v1:";
 
     /**
      * Generates a deterministic namespaced key for account read-caching.
@@ -48,6 +49,23 @@ public final class RedisKeyNamespaces {
             throw new IllegalArgumentException("actorIdentifier cannot be blank");
         }
         return RATE_LIMIT_AUTH_PREFIX + actorIdentifier.trim().toLowerCase();
+    }
+
+    /**
+     * Generates a deterministic, operation-scoped key for authenticated financial mutation rate limiting.
+     *
+     * @param operation financial operation being protected
+     * @param actorIdentifier authenticated caller identifier
+     * @return key in format {@code rate-limit:financial:v1:{operation}:{actorIdentifier}}
+     */
+    public static String financialApiRateLimitKey(FinancialRateLimitOperation operation, String actorIdentifier) {
+        if (operation == null) {
+            throw new IllegalArgumentException("operation cannot be null");
+        }
+        if (actorIdentifier == null || actorIdentifier.isBlank()) {
+            throw new IllegalArgumentException("actorIdentifier cannot be blank");
+        }
+        return RATE_LIMIT_FINANCIAL_PREFIX + operation.name().toLowerCase() + ":" + actorIdentifier.trim().toLowerCase();
     }
 
     /**

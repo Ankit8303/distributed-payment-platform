@@ -2,6 +2,8 @@ package com.paymentledger.refund.api;
 
 import com.paymentledger.auth.domain.UserEntity;
 import com.paymentledger.refund.api.dto.RefundCreateRequest;
+import com.paymentledger.shared.redis.FinancialApiRateLimiter;
+import com.paymentledger.shared.redis.FinancialRateLimitOperation;
 import com.paymentledger.refund.api.dto.RefundResponse;
 import com.paymentledger.refund.api.dto.ReversalCreateRequest;
 import com.paymentledger.refund.api.dto.ReversalResponse;
@@ -20,9 +22,11 @@ import java.util.UUID;
 public class RefundController {
 
     private final RefundService refundService;
+    private final FinancialApiRateLimiter financialApiRateLimiter;
 
-    public RefundController(RefundService refundService) {
+    public RefundController(RefundService refundService, FinancialApiRateLimiter financialApiRateLimiter) {
         this.refundService = refundService;
+        this.financialApiRateLimiter = financialApiRateLimiter;
     }
 
     @PostMapping("/payments/{paymentId}/refunds")
@@ -34,6 +38,7 @@ public class RefundController {
             @Valid @RequestBody RefundCreateRequest request) {
 
         UUID userId = UUID.fromString(userIdStr);
+        financialApiRateLimiter.enforce(FinancialRateLimitOperation.REFUND, userId.toString());
         RefundResponse response = refundService.createRefund(userId, paymentId, idempotencyKey, correlationId, request);
         HttpStatus status = "PENDING_RECONCILIATION".equals(response.status()) ? HttpStatus.ACCEPTED : HttpStatus.CREATED;
         return ResponseEntity.status(status).body(response);
@@ -58,6 +63,7 @@ public class RefundController {
             @Valid @RequestBody ReversalCreateRequest request) {
 
         UUID userId = UUID.fromString(userIdStr);
+        financialApiRateLimiter.enforce(FinancialRateLimitOperation.REVERSAL, userId.toString());
         ReversalResponse response = refundService.createReversal(userId, paymentId, idempotencyKey, correlationId, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }

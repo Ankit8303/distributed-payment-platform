@@ -2,6 +2,8 @@ package com.paymentledger.payment.api;
 
 
 import com.paymentledger.payment.api.dto.PaymentCreateRequest;
+import com.paymentledger.shared.redis.FinancialApiRateLimiter;
+import com.paymentledger.shared.redis.FinancialRateLimitOperation;
 import com.paymentledger.payment.api.dto.PaymentResponse;
 import com.paymentledger.payment.service.PaymentService;
 import jakarta.validation.Valid;
@@ -23,10 +25,13 @@ public class PaymentController {
 
     private final PaymentService paymentService;
     private final AccountRepository accountRepository;
+    private final FinancialApiRateLimiter financialApiRateLimiter;
 
-    public PaymentController(PaymentService paymentService, AccountRepository accountRepository) {
+    public PaymentController(PaymentService paymentService, AccountRepository accountRepository,
+                              FinancialApiRateLimiter financialApiRateLimiter) {
         this.paymentService = paymentService;
         this.accountRepository = accountRepository;
+        this.financialApiRateLimiter = financialApiRateLimiter;
     }
 
     @PostMapping
@@ -37,6 +42,7 @@ public class PaymentController {
             @Valid @RequestBody PaymentCreateRequest request) {
         
         UUID userId = UUID.fromString(userIdStr);
+        financialApiRateLimiter.enforce(FinancialRateLimitOperation.PAYMENT, userId.toString());
         UUID payerAccountId = accountRepository.findByOwnerId(userId, PageRequest.of(0, 10))
                 .stream()
                 .filter(acc -> acc.getAccountType().name().equals("CUSTOMER") || acc.getAccountType().name().equals("MERCHANT"))

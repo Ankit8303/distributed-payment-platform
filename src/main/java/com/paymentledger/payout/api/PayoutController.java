@@ -2,6 +2,8 @@ package com.paymentledger.payout.api;
 
 import com.paymentledger.auth.domain.UserEntity;
 import com.paymentledger.payout.api.dto.PayoutCreateRequest;
+import com.paymentledger.shared.redis.FinancialApiRateLimiter;
+import com.paymentledger.shared.redis.FinancialRateLimitOperation;
 import com.paymentledger.payout.api.dto.PayoutResponse;
 import com.paymentledger.payout.service.PayoutService;
 import com.paymentledger.shared.logging.CorrelationIdFilter;
@@ -18,9 +20,11 @@ import java.util.UUID;
 public class PayoutController {
 
     private final PayoutService payoutService;
+    private final FinancialApiRateLimiter financialApiRateLimiter;
 
-    public PayoutController(PayoutService payoutService) {
+    public PayoutController(PayoutService payoutService, FinancialApiRateLimiter financialApiRateLimiter) {
         this.payoutService = payoutService;
+        this.financialApiRateLimiter = financialApiRateLimiter;
     }
 
     @PostMapping
@@ -31,6 +35,7 @@ public class PayoutController {
             @Valid @RequestBody PayoutCreateRequest request) {
 
         UUID userId = UUID.fromString(userIdStr);
+        financialApiRateLimiter.enforce(FinancialRateLimitOperation.PAYOUT, userId.toString());
         PayoutResponse response = payoutService.createPayout(userId, idempotencyKey, correlationId, request);
         HttpStatus status = "PENDING_RECONCILIATION".equals(response.status()) ? HttpStatus.ACCEPTED : HttpStatus.CREATED;
         return ResponseEntity.status(status).body(response);
