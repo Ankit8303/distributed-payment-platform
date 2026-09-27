@@ -39,7 +39,16 @@ else
     fi
 
     # Production Kafka must never use plaintext transport.
-    if grep -Eiq '^[[:space:]]*security.protocol:[[:space:]]*(PLAINTEXT|SASL_PLAINTEXT)[[:space:]]*
+    if grep -Eiq "^[[:space:]]*security\\.protocol:[[:space:]]*(PLAINTEXT|SASL_PLAINTEXT)[[:space:]]*$" "$PROD_YML"; then
+        echo " [ERROR] application-prod.yml must not use plaintext Kafka transport (PLAINTEXT/SASL_PLAINTEXT)"
+        ERRORS=$((ERRORS + 1))
+    fi
+
+    # Production Kafka security protocol must be explicitly supplied by the environment.
+    if ! grep -Eq "security\\.protocol:[[:space:]]*\\$\\{KAFKA_SECURITY_PROTOCOL\\}" "$PROD_YML"; then
+        echo " [ERROR] application-prod.yml must require KAFKA_SECURITY_PROTOCOL for Kafka"
+        ERRORS=$((ERRORS + 1))
+    fi
 fi
 
 # 2. Validate docker/Dockerfile
