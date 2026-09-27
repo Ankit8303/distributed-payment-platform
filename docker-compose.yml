@@ -4,9 +4,9 @@ services:
     container_name: payment-ledger-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: payment_ledger
-      POSTGRES_USER: payment_ledger
-      POSTGRES_PASSWORD: payment_ledger_dev_password
+      POSTGRES_DB: ${POSTGRES_DB:-payment_ledger}
+      POSTGRES_USER: ${POSTGRES_USER:-payment_ledger}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
     ports:
       - "5432:5432"
     volumes:
@@ -98,7 +98,7 @@ services:
     restart: unless-stopped
     environment:
       GF_SECURITY_ADMIN_USER: admin
-      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set}
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_INSTALL_PLUGINS: ""
