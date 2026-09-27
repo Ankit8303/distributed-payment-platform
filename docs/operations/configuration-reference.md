@@ -20,7 +20,7 @@ All runtime configurations for the Distributed Payment & Ledger Platform adhere 
 | Environment Variable | Description | Default (Local / Dev) | Production Requirement | Sensitive? |
 |---|---|---|---|:---:|
 | `SERVER_PORT` | HTTP port for incoming application traffic | `8080` | `8080` (or container port mapping) | No |
-| `DB_URL` | JDBC URL for PostgreSQL database | `jdbc:postgresql://localhost:5432/payment_ledger` | `jdbc:postgresql://<db-host>:5432/<db-name>` | No |
+| `DB_URL` | JDBC URL for PostgreSQL database | `jdbc:postgresql://localhost:5432/payment_ledger` | `jdbc:postgresql://<db-host>:5432/<db-name>?sslmode=verify-full` | No |
 | `DB_USERNAME` | PostgreSQL service user | `postgres` | Least-privilege application user | No |
 | `DB_PASSWORD` | PostgreSQL service user password | `postgres` | **REQUIRED** (High entropy, KMS-injected) | **YES** |
 | `HIKARI_MAX_POOL_SIZE` | Maximum database connection pool size | `20` | `20` (Calibrated in Phase 19) | No |
@@ -35,6 +35,20 @@ All runtime configurations for the Distributed Payment & Ledger Platform adhere 
 | `AUTH_LOGIN_RATE_LIMIT` | Maximum login attempts per client per window | `5` | `5` attempts / minute | No |
 
 ---
+
+## 3. Production Configuration Safeguards (`application-prod.yml`)
+
+### PostgreSQL transport security
+
+The production `DB_URL` must use PostgreSQL TLS with certificate and hostname verification:
+
+```
+jdbc:postgresql://<db-host>:5432/<db-name>?sslmode=verify-full
+```
+
+Production database connections must not use `sslmode=disable`. The deployment environment must provide the trusted CA/certificate material required for verification; trust material must not be committed to the repository or baked into the application image.
+
+TLS verification is an environment acceptance gate: the release process must verify the actual database endpoint, certificate chain, and hostname before unrestricted production traffic.
 
 ## 3. Production Configuration Safeguards (`application-prod.yml`)
 
