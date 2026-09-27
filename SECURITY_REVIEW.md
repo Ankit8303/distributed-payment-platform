@@ -10,7 +10,7 @@
 **Repository security gate:** PASS on hardened PR #1 after remediation.  
 **Production authorization:** NOT AUTOMATIC. A controlled staging/canary deployment and environment-specific operational verification remain required.
 
-OWASP ASVS provides a basis for testing application security controls rather than merely documenting intended controls. citeturn0search0
+OWASP ASVS provides a basis for testing application security controls rather than merely documenting intended controls.
 
 ## Findings and Remediation
 
@@ -73,9 +73,9 @@ The repository had security workflows, but `main` was not protected and had no r
 
 The repository previously generated checksums but did not establish signed provenance for release artifacts.
 
-**Remediation:** The production release workflow now builds a versioned container, generates an SBOM, and creates signed GitHub artifact/container attestations. GitHub documents artifact attestations as signed provenance linking an artifact to its workflow, repository, commit, and build context. citeturn1search0turn1search1
+**Remediation:** The production release workflow now builds a versioned container, generates an SBOM, and creates signed GitHub artifact/container attestations. GitHub documents artifact attestations as signed provenance linking an artifact to its workflow, repository, commit, and build context. 
 
-SLSA Build L1 requires provenance describing how a package was built; higher levels increase provenance authenticity and build isolation. citeturn0search3turn0search13
+SLSA Build L1 requires provenance describing how a package was built; higher levels increase provenance authenticity and build isolation. 
 
 ## Verified Security Controls
 
