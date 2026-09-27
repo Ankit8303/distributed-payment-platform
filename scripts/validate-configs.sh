@@ -35,6 +35,18 @@ else
         ERRORS=$((ERRORS + 1))
     fi
 
+    # Production Kafka must never use plaintext transport.
+    if grep -Eq '^[[:space:]]*security.protocol:[[:space:]]*(PLAINTEXT|SASL_PLAINTEXT)[[:space:]]*$' "$PROD_YML"; then
+        echo " [ERROR] application-prod.yml must not use plaintext Kafka transport (PLAINTEXT/SASL_PLAINTEXT)"
+        ERRORS=$((ERRORS + 1))
+    fi
+
+    # Production Kafka security protocol must be explicitly supplied by the environment.
+    if ! grep -Fq 'security.protocol: ${KAFKA_SECURITY_PROTOCOL}' "$PROD_YML"; then
+        echo " [ERROR] application-prod.yml must require KAFKA_SECURITY_PROTOCOL for Kafka"
+        ERRORS=$((ERRORS + 1))
+    fi
+
     # Production Redis must explicitly enable TLS.
     if ! grep -Fq "ssl:" "$PROD_YML" || ! grep -Fq "enabled: true" "$PROD_YML"; then
         echo " [ERROR] application-prod.yml must explicitly enable Redis TLS"
