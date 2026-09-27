@@ -25,7 +25,7 @@ All runtime configurations for the Distributed Payment & Ledger Platform adhere 
 | `DB_PASSWORD` | PostgreSQL service user password | `postgres` | **REQUIRED** (High entropy, KMS-injected) | **YES** |
 | `HIKARI_MAX_POOL_SIZE` | Maximum database connection pool size | `20` | `20` (Calibrated in Phase 19) | No |
 | `HIKARI_MIN_IDLE` | Minimum idle database connections | `10` | `10` | No |
-| `KAFKA_BOOTSTRAP_SERVERS` | Kafka cluster bootstrap connection string | `localhost:9092` | `broker1:9092,broker2:9092` | No |
+| `KAFKA_BOOTSTRAP_SERVERS` | Kafka cluster bootstrap connection string | `localhost:9092` | `broker1:9093,broker2:9093` (TLS/SASL listener) | No |
 | `REDIS_HOST` | Redis cache and rate limiter host | `localhost` | Primary Redis host / cluster endpoint | No |
 | `REDIS_PORT` | Redis TCP port | `6379` | `6379` | No |
 | `REDIS_PASSWORD` | Redis authentication password | `""` (Empty in dev) | **REQUIRED** if Redis AUTH enabled | **YES** |
@@ -36,6 +36,19 @@ All runtime configurations for the Distributed Payment & Ledger Platform adhere 
 
 ---
 
+### Kafka transport and authentication security
+
+Production Kafka client connections must use a TLS-protected listener. The production deployment contract must provide an authenticated Kafka connection using a security protocol such as `SASL_SSL` (or an equivalent TLS-protected authenticated mechanism approved for the target Kafka platform). Plaintext production client listeners are prohibited.
+
+The production environment must supply:
+- a TLS-protected Kafka bootstrap endpoint;
+- the approved SASL/authentication mechanism and credentials or workload identity;
+- trusted CA material required to validate the broker certificate;
+- any client certificate/key material required by the selected mutual-TLS or authentication model.
+
+Authentication credentials and private key material must not be committed to the repository or baked into the application image. Trust material must be supplied through the deployment environment or approved secret/trust-management mechanism.
+
+The exact Kafka authentication mechanism is deployment-specific; repository configuration must not claim environment-level authentication is verified until the target broker configuration and client connection have been tested.
 ## 3. Production Configuration Safeguards (`application-prod.yml`)
 
 ### PostgreSQL transport security
