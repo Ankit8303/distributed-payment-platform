@@ -225,7 +225,7 @@ public class Phase17ProductionHardeningIntegrationTest extends AbstractIntegrati
     }
 
     private AccountEntity getOrCreateAccount(UUID ownerId, AccountType type, String currency, long initialBalance) {
-        String num = "ACC-P17-" + type.name().substring(0, 3) + "-" + UUID.randomUUID().toString().substring(0, 6).toUpperCase();
+        String num = "ACC-P17-" + type.name().substring(0, 3) + "-" + UUID.randomUUID().toString().toUpperCase();
         AccountEntity acc = new AccountEntity(num, ownerId, type, currency, AccountStatus.ACTIVE);
         acc = accountRepository.saveAndFlush(acc);
         if (initialBalance > 0) {
