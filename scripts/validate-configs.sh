@@ -24,7 +24,7 @@ else
         echo " [ERROR] application-prod.yml must enable server.shutdown: graceful"
         ERRORS=$((ERRORS + 1))
     fi
-    if grep -E "include:\s*['"]?\*['"]?" "$PROD_YML" >/dev/null; then
+    if grep -Eq 'include:[[:space:]]*["']?\*["']?' "$PROD_YML" >/dev/null; then
         echo " [ERROR] application-prod.yml must not expose wildcard actuator endpoints ('*')"
         ERRORS=$((ERRORS + 1))
     fi
