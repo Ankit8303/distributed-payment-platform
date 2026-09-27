@@ -6,7 +6,7 @@ spring:
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/payment_ledger}
     username: ${DB_USERNAME:payment_ledger}
-    password: ${DB_PASSWORD:payment_ledger_dev_password}
+    password: ${DB_PASSWORD:}
     driver-class-name: org.postgresql.Driver
     hikari:
       connection-timeout: 10000
@@ -80,7 +80,8 @@ app:
   security:
     jwt:
       # Deterministic test-only secret. MUST NOT be used in production.
-      secret: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      # Integration tests must provide TEST_JWT_SECRET; never embed a signing key in source.
+      secret: ${TEST_JWT_SECRET}
       access-token-expiration-ms: 900000
       refresh-token-expiration-ms: 604800000
 
