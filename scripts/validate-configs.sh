@@ -37,6 +37,65 @@ else
         echo " [ERROR] application-prod.yml must not explicitly disable PostgreSQL TLS (sslmode=disable)"
         ERRORS=$((ERRORS + 1))
     fi
+
+    # Production Kafka must never use plaintext transport.
+    if grep -Eiq '^[[:space:]]*security.protocol:[[:space:]]*(PLAINTEXT|SASL_PLAINTEXT)[[:space:]]*
+fi
+
+# 2. Validate docker/Dockerfile
+DOCKERFILE="$REPO_ROOT/docker/Dockerfile"
+if [[ ! -f "$DOCKERFILE" ]]; then
+    echo " [ERROR] Missing docker/Dockerfile"
+    ERRORS=$((ERRORS + 1))
+else
+    if ! grep -E "^USER\s+appuser" "$DOCKERFILE" >/dev/null; then
+        echo " [ERROR] docker/Dockerfile must run as non-root user (USER appuser)"
+        ERRORS=$((ERRORS + 1))
+    fi
+    if ! grep -E "^HEALTHCHECK" "$DOCKERFILE" >/dev/null; then
+        echo " [ERROR] docker/Dockerfile must define a HEALTHCHECK instruction"
+        ERRORS=$((ERRORS + 1))
+    fi
+fi
+
+# 3. Validate docker-compose.yml
+COMPOSE_FILE="$REPO_ROOT/docker-compose.yml"
+if [[ ! -f "$COMPOSE_FILE" ]]; then
+    echo " [ERROR] Missing docker-compose.yml"
+    ERRORS=$((ERRORS + 1))
+else
+    # Check for healthchecks on critical services
+    if ! grep -A 20 "postgres:" "$COMPOSE_FILE" | grep -q "healthcheck:"; then
+        echo " [ERROR] docker-compose.yml missing healthcheck for postgres"
+        ERRORS=$((ERRORS + 1))
+    fi
+    if ! grep -A 25 "kafka:" "$COMPOSE_FILE" | grep -q "healthcheck:"; then
+        echo " [ERROR] docker-compose.yml missing healthcheck for kafka"
+        ERRORS=$((ERRORS + 1))
+    fi
+    if ! grep -A 15 "redis:" "$COMPOSE_FILE" | grep -q "healthcheck:"; then
+        echo " [ERROR] docker-compose.yml missing healthcheck for redis"
+        ERRORS=$((ERRORS + 1))
+    fi
+fi
+
+if [[ $ERRORS -gt 0 ]]; then
+    echo "==> Configuration validation FAILED: $ERRORS issues detected."
+    exit 1
+else
+    echo "==> Configuration validation PASSED: Production configurations and containers verified."
+    exit 0
+fi
+ "$PROD_YML"; then
+        echo " [ERROR] application-prod.yml must not use plaintext Kafka transport (PLAINTEXT/SASL_PLAINTEXT)"
+        ERRORS=$((ERRORS + 1))
+    fi
+
+    # Production Kafka security protocol must be explicitly supplied by the environment.
+    if ! grep -Eq 'security.protocol:[[:space:]]*\$\{KAFKA_SECURITY_PROTOCOL\}' "$PROD_YML"; then
+        echo " [ERROR] application-prod.yml must require KAFKA_SECURITY_PROTOCOL for Kafka"
+        ERRORS=$((ERRORS + 1))
+    fi
 fi
 
 # 2. Validate docker/Dockerfile
