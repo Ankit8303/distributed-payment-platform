@@ -14,7 +14,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doThrow;
 
 @ExtendWith(MockitoExtension.class)
 class PaymentControllerRateLimitTest {
@@ -25,8 +25,8 @@ class PaymentControllerRateLimitTest {
     @Test
     void createPaymentEnforcesPaymentBucketBeforeFinancialProcessing() {
         UUID userId = UUID.randomUUID();
-        when(financialApiRateLimiter.enforce(FinancialRateLimitOperation.PAYMENT, userId.toString()))
-                .thenThrow(new RateLimitExceededException("blocked", 42, 30));
+        doThrow(new RateLimitExceededException("blocked", 42, 30))
+                .when(financialApiRateLimiter).enforce(FinancialRateLimitOperation.PAYMENT, userId.toString());
 
         PaymentController controller = new PaymentController(paymentService, accountRepository, financialApiRateLimiter);
 
