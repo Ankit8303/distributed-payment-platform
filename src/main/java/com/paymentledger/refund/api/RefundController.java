@@ -20,9 +20,11 @@ import java.util.UUID;
 public class RefundController {
 
     private final RefundService refundService;
+    private final FinancialApiRateLimiter financialApiRateLimiter;
 
-    public RefundController(RefundService refundService) {
+    public RefundController(RefundService refundService, FinancialApiRateLimiter financialApiRateLimiter) {
         this.refundService = refundService;
+        this.financialApiRateLimiter = financialApiRateLimiter;
     }
 
     @PostMapping("/payments/{paymentId}/refunds")
@@ -34,6 +36,7 @@ public class RefundController {
             @Valid @RequestBody RefundCreateRequest request) {
 
         UUID userId = UUID.fromString(userIdStr);
+        financialApiRateLimiter.enforce(FinancialRateLimitOperation.REFUND, userId.toString());
         RefundResponse response = refundService.createRefund(userId, paymentId, idempotencyKey, correlationId, request);
         HttpStatus status = "PENDING_RECONCILIATION".equals(response.status()) ? HttpStatus.ACCEPTED : HttpStatus.CREATED;
         return ResponseEntity.status(status).body(response);
