@@ -13,7 +13,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doThrow;
 
 @ExtendWith(MockitoExtension.class)
 class RefundControllerRateLimitTest {
@@ -24,8 +24,8 @@ class RefundControllerRateLimitTest {
     void createRefundEnforcesRefundBucketBeforeFinancialProcessing() {
         UUID userId = UUID.randomUUID();
         UUID paymentId = UUID.randomUUID();
-        when(financialApiRateLimiter.enforce(FinancialRateLimitOperation.REFUND, userId.toString()))
-                .thenThrow(new RateLimitExceededException("blocked", 42, 30));
+        doThrow(new RateLimitExceededException("blocked", 42, 30))
+                .when(financialApiRateLimiter).enforce(FinancialRateLimitOperation.REFUND, userId.toString());
 
         RefundController controller = new RefundController(refundService, financialApiRateLimiter);
 
@@ -39,8 +39,8 @@ class RefundControllerRateLimitTest {
     void createReversalEnforcesReversalBucketBeforeFinancialProcessing() {
         UUID userId = UUID.randomUUID();
         UUID paymentId = UUID.randomUUID();
-        when(financialApiRateLimiter.enforce(FinancialRateLimitOperation.REVERSAL, userId.toString()))
-                .thenThrow(new RateLimitExceededException("blocked", 42, 30));
+        doThrow(new RateLimitExceededException("blocked", 42, 30))
+                .when(financialApiRateLimiter).enforce(FinancialRateLimitOperation.REVERSAL, userId.toString());
 
         RefundController controller = new RefundController(refundService, financialApiRateLimiter);
 
