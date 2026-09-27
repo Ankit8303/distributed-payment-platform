@@ -3,11 +3,11 @@
 **Repository:** `Ankit8303/distributed-payment-platform`  
 **Review date:** 2026-09-27  
 **Review scope:** Repository source, CI/CD workflows, production configuration, container definition, security tests, and GitHub repository state.  
-**Reference standard:** OWASP ASVS 5.0 and OWASP API Security principles. ASVS is used as a verification framework; this document is not a regulatory certification.  
+**Reference standard:** OWASP ASVS 5.0 and OWASP API Security principles. ASVS is used as a verification framework; this document is not a regulatory certification.
 
 ## Auditor Status
 
-**Repository security gate:** PASS on hardened PR #1 after remediation.  
+**Repository security gate:** PASS after remediation and post-merge validation.  
 **Production authorization:** NOT AUTOMATIC. A controlled staging/canary deployment and environment-specific operational verification remain required.
 
 OWASP ASVS provides a basis for testing application security controls rather than merely documenting intended controls.
@@ -34,13 +34,13 @@ Authentication login rate limiting used `FAIL_OPEN`, allowing Redis failure to r
 
 **Verification:** Security test suite passed after the change.
 
-### SEC-003 — Stale security review claimed a global rate-limiting filter
+### SEC-003 — Stale security review claims
 **Severity:** MEDIUM  
 **Status:** DOCUMENTATION CORRECTED
 
-Repository inspection found authentication-specific Redis rate limiting, but no implementation matching the previously documented `RedisRateLimitingFilter` global control. The prior review also described a 10 MB production request limit while the hardened production profile uses 2 MB.
+The earlier review described controls that were not present in the source tree, including a global `RedisRateLimitingFilter` and a 10 MB production request limit.
 
-**Remediation:** This document records only controls verified in the current source tree. The implementation should not be represented as globally rate-limited until such a filter is actually implemented and tested.
+**Remediation:** This document records only controls verified in the current source tree. Global financial mutation rate limiting is now separately implemented and tested as documented under R-001 remediation below.
 
 ### SEC-004 — Production Flyway auto-baselining
 **Severity:** HIGH  
@@ -52,20 +52,18 @@ The production profile previously enabled `baseline-on-migrate: true`. That beha
 
 ### SEC-005 — CI security gates were not sufficient to protect main
 **Severity:** HIGH  
-**Status:** PARTIALLY REMEDIATED
+**Status:** REMEDIATED
 
-The repository had security workflows, but `main` was not protected and had no required status checks at audit time.
+The repository previously lacked effective main-branch enforcement.
 
-**Remediation:** The hardened PR establishes passing CI/security checks. GitHub branch protection/ruleset configuration still requires an owner/admin action because the available repository integration does not expose a write operation for branch protection.
+**Remediation:** The active **Production Main Protection** ruleset now requires pull requests, enforces the CI quality/security/reproducible-build checks, requires conversation resolution, blocks force pushes, and restricts deletion of the default branch. No bypass actors are configured. Required approval count is 0 for the current solo-maintainer workflow.
 
-**Required repository policy:**
-- Require pull requests before merging.
-- Require the CI quality gate.
-- Require the security quality gate.
-- Require reproducible-build verification.
-- Require conversation resolution/review as appropriate.
-- Disable force pushes to `main`.
-- Restrict deletion of `main`.
+**Required status checks:**
+- `Quality Gate Evaluation`
+- `Security Gate Evaluation`
+- `Dual-Build Deterministic Verification`
+
+**Verification:** The ruleset is active, and PR #3 was merged only after the required validation workflows passed.
 
 ### SEC-006 — Supply-chain provenance was incomplete
 **Severity:** MEDIUM  
@@ -73,13 +71,13 @@ The repository had security workflows, but `main` was not protected and had no r
 
 The repository previously generated checksums but did not establish signed provenance for release artifacts.
 
-**Remediation:** The production release workflow now builds a versioned container, generates an SBOM, and creates signed GitHub artifact/container attestations. GitHub documents artifact attestations as signed provenance linking an artifact to its workflow, repository, commit, and build context. 
+**Remediation:** The production release workflow now builds a versioned container, generates an SBOM, and creates signed GitHub artifact/container attestations. GitHub artifact attestations provide signed provenance linking an artifact to its workflow, repository, commit, and build context.
 
-SLSA Build L1 requires provenance describing how a package was built; higher levels increase provenance authenticity and build isolation. 
+SLSA Build L1 requires provenance describing how a package was built; higher levels increase provenance authenticity and build isolation.
 
 ## Verified Security Controls
 
-The hardened PR passed:
+The repository has passing executable evidence for:
 
 - Secret and credential scanning.
 - Maven dependency vulnerability scanning.
@@ -90,13 +88,27 @@ The hardened PR passed:
 - Production configuration validation.
 - Full Maven integration/unit test suite.
 - Reproducible-build verification.
-
-The security workflow therefore provides executable evidence for the above gates rather than relying solely on documentation.
+- Authenticated financial mutation rate limiting.
+- Redis `FAIL_CLOSED` behavior for financial mutation admission.
+- Operation-scoped rate-limit isolation.
+- Post-merge CI validation on `main`.
 
 ## Residual Risks
 
-### R-001 — Global API abuse protection
-Authentication abuse is rate-limited. A separate, explicitly tested global/API-class rate limiting policy should be introduced before exposing high-value endpoints to hostile public traffic.
+### R-001 — Global/API abuse protection
+**Status: REMEDIATED FOR FINANCIAL MUTATIONS**
+
+Authenticated financial mutation endpoints now use an operation-scoped distributed Redis rate limiter with `FAIL_CLOSED` behavior.
+
+Protected mutations:
+- `POST /api/v1/payments`
+- `POST /api/v1/payouts`
+- `POST /api/v1/payments/{paymentId}/refunds`
+- `POST /api/v1/payments/{paymentId}/reversal`
+
+The limiter uses the authenticated user ID as the primary actor identity and separate operation namespaces for payment, payout, refund, and reversal. Read-only GET endpoints are intentionally not rate-limited by this control.
+
+This remediation addresses application-level financial mutation abuse protection. It does not claim that every public HTTP endpoint is globally rate-limited; perimeter/API-gateway/WAF controls remain environment-specific.
 
 ### R-002 — Production environment controls
 TLS termination, database TLS verification, Kafka authentication/encryption, Redis authentication/TLS, secret-manager integration, network policy, WAF/API gateway policy, and cloud IAM remain deployment-environment concerns.
@@ -112,8 +124,8 @@ This audit does not certify PCI DSS, SOC 2, ISO 27001, RBI authorization, money-
 
 ## Auditor Decision
 
-**Code/repository gate:** READY_FOR_CONTROLLED_ROLLOUT after the hardened PR passes all mandatory checks.
+**Code/repository gate:** READY_FOR_CONTROLLED_ROLLOUT after mandatory repository checks pass.
 
 **Unrestricted production traffic:** NOT YET CERTIFIED by this repository audit alone.
 
-The correct next boundary is target-environment verification: deploy the exact attested release artifact to staging, execute smoke tests, migration validation, backup/restore verification, reconciliation checks, health/readiness checks, and controlled traffic tests before production exposure.
+The next boundary is target-environment verification: deploy the exact attested release artifact to staging, execute smoke tests, migration validation, backup/restore verification, reconciliation checks, health/readiness checks, and controlled traffic tests before production exposure.
