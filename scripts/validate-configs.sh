@@ -36,13 +36,13 @@ else
     fi
 
     # Production Redis must explicitly enable TLS.
-    if ! grep -Eq '^[[:space:]]*ssl:[[:space:]]*$' "$PROD_YML" ||        ! grep -Eq '^[[:space:]]*enabled:[[:space:]]*true[[:space:]]*$' "$PROD_YML"; then
+    if ! grep -Fq "ssl:" "$PROD_YML" || ! grep -Fq "enabled: true" "$PROD_YML"; then
         echo " [ERROR] application-prod.yml must explicitly enable Redis TLS"
         ERRORS=$((ERRORS + 1))
     fi
 
     # Production Redis authentication must be supplied by the environment.
-    if ! grep -Eq '^[[:space:]]*password:[[:space:]]*\$\{REDIS_PASSWORD\}[[:space:]]*$' "$PROD_YML"; then
+    if ! grep -Fq 'password: ${REDIS_PASSWORD}' "$PROD_YML"; then
         echo " [ERROR] application-prod.yml must require REDIS_PASSWORD for Redis authentication"
         ERRORS=$((ERRORS + 1))
     fi
