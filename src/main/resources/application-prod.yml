@@ -53,6 +53,14 @@ spring:
 
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS}
+    properties:
+      # Production Kafka must use an encrypted and authenticated listener.
+      security.protocol: ${KAFKA_SECURITY_PROTOCOL}
+      sasl.mechanism: ${KAFKA_SASL_MECHANISM}
+      sasl.jaas.config: ${KAFKA_SASL_JAAS_CONFIG}
+      ssl.truststore.location: ${KAFKA_SSL_TRUSTSTORE_LOCATION}
+      ssl.truststore.password: ${KAFKA_SSL_TRUSTSTORE_PASSWORD}
+      ssl.truststore.type: ${KAFKA_SSL_TRUSTSTORE_TYPE:PKCS12}
     consumer:
       group-id: payment-ledger-group
       auto-offset-reset: earliest
