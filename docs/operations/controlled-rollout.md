@@ -20,7 +20,8 @@ The Distributed Payment & Ledger Platform processes authoritative financial tran
 
 Before initiating any production deployment, the release engineer must verify:
 - [ ] **CI Quality Gates**: Master branch build passed 100% of unit, integration, and security scans (0 test failures).
-- [ ] **Artifact Verification**: Docker image digest verified; non-root user and SBOM present.
+- [ ] **Artifact Attestation**: Verify the signed GitHub artifact attestation for the exact container image digest and confirm it originates from this repository's trusted production release workflow and expected source revision.
+- [ ] **Artifact Verification**: Deploy by immutable Docker image digest; confirm the verified digest matches the attested subject, the image runs as a non-root user, and the attested SBOM is present for that same digest.
 - [ ] **Database Backup**: Fresh logical PostgreSQL backup created and stored in isolated storage within the last 2 hours.
 - [ ] **Flyway Forward Compatibility**: Migrations are strictly additive (new tables, nullable columns, new indexes). Destructive drops (`DROP TABLE`, `DROP COLUMN`) are strictly prohibited in rolling releases.
 - [ ] **Secrets Verification**: Required environment variables (`DB_PASSWORD`, `JWT_SECRET`, etc.) configured in target environment.
@@ -33,15 +34,16 @@ Before initiating any production deployment, the release engineer must verify:
 ```mermaid
 graph TD
     A["1. Create Pre-Release DB Backup"] --> B["2. Apply Flyway Schema Migrations"]
-    B --> C["3. Pull New Container Image Digest"]
-    C --> D["4. Start New Application Container"]
-    D --> E["5. Verify Readiness Probe (/actuator/health/readiness)"]
-    E --> F{"Probe Status UP?"}
-    F -->|No| G["Trigger Immediate Rollback"]
-    F -->|Yes| H["6. Execute Smoke Test Suite"]
-    H --> I["7. Shift Ingress Traffic to New Container"]
-    I --> J["8. Graceful Shutdown of Old Container (20s drain)"]
-    J --> K["9. 30-Minute Post-Deployment Soak Observation"]
+    B --> C["3. Pull Container by Immutable Digest"]
+    C --> D["4. Verify Signed Attestation + Digest + SBOM"]
+    D --> E["5. Start New Application Container"]
+    E --> F["6. Verify Readiness Probe (/actuator/health/readiness)"]
+    F --> G{"Probe Status UP?"}
+    G -->|No| H["Trigger Immediate Rollback"]
+    G -->|Yes| I["7. Execute Smoke Test Suite"]
+    I --> J["8. Shift Ingress Traffic to New Container"]
+    J --> K["9. Graceful Shutdown of Old Container (20s drain)"]
+    K --> L["10. 30-Minute Post-Deployment Soak Observation"]
 ```
 
 ### Detailed Steps:
@@ -50,18 +52,20 @@ graph TD
    ```bash
    ./scripts/validate-migrations.sh
    ```
-2. **Container Launch**:
-   Run the newly tagged container alongside the current container on an alternate internal port.
-3. **Healthcheck & Readiness Verification**:
+2. **Artifact Trust Verification**:
+   Resolve and pull the candidate container by immutable digest, never by a mutable deployment tag alone. Before starting the container, verify the signed GitHub artifact attestation for that exact digest, verify that the attestation identifies this repository and the expected production release workflow/source revision, and verify the SBOM attestation is bound to the same digest. Any missing, invalid, or mismatched attestation is a deployment-blocking failure.
+3. **Container Launch**:
+   Run the verified container digest alongside the current container on an alternate internal port.
+4. **Healthcheck & Readiness Verification**:
    Poll `/actuator/health/readiness` until it returns HTTP 200 with database connectivity confirmed:
    ```bash
    curl -f http://localhost:8080/actuator/health/readiness || exit 1
    ```
-4. **Smoke Testing**:
+5. **Smoke Testing**:
    Execute synthetic smoke test transactions (health check, customer login, account read, idempotent payment replay).
-5. **Traffic Cutover**:
+6. **Traffic Cutover**:
    Update reverse proxy / load balancer upstream to point to the new container.
-6. **Graceful Drain**:
+7. **Graceful Drain**:
    Send `SIGTERM` to the old container. Spring Boot's graceful shutdown (`server.shutdown: graceful`, `timeout-per-shutdown-phase: 20s`) allows in-flight HTTP requests and transactional outbox publishes to complete safely.
 
 ---
