@@ -86,7 +86,7 @@ jobs:
       - name: Generate Container SBOM
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.push.outputs.digest }}
+          image-ref: ${{ steps.image-ref.outputs.repository }}@${{ steps.push.outputs.digest }}
           format: cyclonedx
           output: sbom.cdx.json
           exit-code: '0'
@@ -113,7 +113,7 @@ jobs:
       - name: Attest Container Image
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
-          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-name: ${{ steps.image-ref.outputs.repository }}
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
 
