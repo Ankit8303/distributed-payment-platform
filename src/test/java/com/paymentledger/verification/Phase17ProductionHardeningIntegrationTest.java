@@ -1567,13 +1567,19 @@ public class Phase17ProductionHardeningIntegrationTest extends AbstractIntegrati
         LedgerTransactionEntity txRev = ledgerService.settleReversalWithLedger(reversalRev, paymentForRev, "corr_rev_rev");
         assertThat(txRev.getStatus()).isEqualTo(LedgerTransactionStatus.POSTED);
 
-        // 4. Payout with larger as origin, smaller as clearing (exercises originId > settlementId branch)
+        // 4. Payout with origin ID > settlement ID (exercises originId.compareTo(settlementId) >= 0 branch)
         AccountEntity clearing = getPlatformClearingAccount();
-        AccountEntity originP = clearing.getId().compareTo(accA.getId()) < 0 ? accA : clearing;
-        AccountEntity settlementP = clearing.getId().compareTo(accA.getId()) < 0 ? clearing : accA;
-        AccountEntity fundedOrigin = getOrCreateAccount(originP.getOwnerId(), originP.getAccountType(), "USD", 50_000L);
-        PayoutEntity payout = payoutRepository.saveAndFlush(new PayoutEntity(fundedOrigin.getId(), 1000L, "USD"));
-        LedgerTransactionEntity txPayout = ledgerService.settlePayoutWithLedger(payout, fundedOrigin, settlementP, "corr_payout_rev");
+        AccountEntity originAccount;
+        do {
+            originAccount = getOrCreateAccount(merchantUser.getId(), AccountType.MERCHANT, "USD", 50_000L);
+        } while (originAccount.getId().compareTo(clearing.getId()) <= 0);
+
+        assertThat(originAccount.getId().compareTo(clearing.getId()))
+                .as("Origin account ID must be strictly greater than clearing account ID")
+                .isGreaterThan(0);
+
+        PayoutEntity payout = payoutRepository.saveAndFlush(new PayoutEntity(originAccount.getId(), 1000L, "USD"));
+        LedgerTransactionEntity txPayout = ledgerService.settlePayoutWithLedger(payout, originAccount, clearing, "corr_payout_rev");
         assertThat(txPayout.getStatus()).isEqualTo(LedgerTransactionStatus.POSTED);
     }
 
