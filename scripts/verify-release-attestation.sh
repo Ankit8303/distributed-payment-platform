@@ -11,7 +11,7 @@ set -euo pipefail
 IMAGE_REF="${1:-}"
 REPOSITORY="${ATTESTATION_REPOSITORY:-Ankit8303/distributed-payment-platform}"
 SIGNER_WORKFLOW="${ATTESTATION_SIGNER_WORKFLOW:-Ankit8303/distributed-payment-platform/.github/workflows/release.yml}"
-SBOM_PREDICATE_TYPE="${ATTESTATION_SBOM_PREDICATE_TYPE:-https://spdx.dev/Document/v2.3}"
+SBOM_PREDICATE_TYPE="${ATTESTATION_SBOM_PREDICATE_TYPE:-https://cyclonedx.org/bom}"
 
 if [[ -z "$IMAGE_REF" ]]; then
   echo "[ERROR] image reference is required" >&2
