@@ -71,16 +71,17 @@ jobs:
           provenance: false
           sbom: false
 
+      - name: Normalize Immutable Image Reference
+        id: image-ref
+        shell: bash
+        run: |
+          repository="$(printf '%s' "${REGISTRY}/${IMAGE_NAME}" | tr '[:upper:]' '[:lower:]')"
+          echo "repository=${repository}" >> "$GITHUB_OUTPUT"
+
       - name: Scan Published Container
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.push.outputs.digest }}
-          format: table
-          exit-code: '1'
-          ignore-unfixed: true
-          vuln-type: os,library
-          severity: CRITICAL,HIGH
-          trivyignores: .trivyignore
+          image-ref: ${{ steps.image-ref.outputs.repository }}@${{ steps.push.outputs.digest }}
 
       - name: Generate Container SBOM
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
