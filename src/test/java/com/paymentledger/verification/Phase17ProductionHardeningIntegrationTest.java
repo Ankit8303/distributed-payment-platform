@@ -39,8 +39,21 @@ import com.paymentledger.payout.repository.PayoutRepository;
 import com.paymentledger.payout.service.PayoutService;
 import com.paymentledger.refund.api.dto.RefundCreateRequest;
 import com.paymentledger.refund.domain.RefundEntity;
+import com.paymentledger.refund.domain.ReversalEntity;
+import com.paymentledger.refund.domain.ReversalStatus;
+import com.paymentledger.refund.exception.RefundDomainException;
 import com.paymentledger.refund.repository.RefundRepository;
+import com.paymentledger.refund.repository.ReversalRepository;
 import com.paymentledger.refund.service.RefundService;
+import com.paymentledger.ledger.domain.LedgerTransactionStatus;
+import com.paymentledger.payment.exception.PaymentDomainException;
+import com.paymentledger.payout.exception.PayoutDomainException;
+import com.paymentledger.shared.error.ErrorCode;
+import org.springframework.test.util.ReflectionTestUtils;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
 import com.paymentledger.shared.idempotency.IdempotencyRecordRepository;
 import com.paymentledger.shared.logging.LogMaskingConverter;
 import com.paymentledger.shared.metrics.PlatformMetrics;
@@ -139,6 +152,9 @@ public class Phase17ProductionHardeningIntegrationTest extends AbstractIntegrati
 
     @Autowired
     private RefundRepository refundRepository;
+
+    @Autowired
+    private ReversalRepository reversalRepository;
 
     @Autowired
     private RefundService refundService;
@@ -1044,5 +1060,653 @@ public class Phase17ProductionHardeningIntegrationTest extends AbstractIntegrati
     void AL_noPhase20Leakage() {
         File phase21Report = new File("docs/phase-reports/PHASE-21.md");
         assertThat(phase21Report).as("Phase 21 report must not exist — Phase 20 is final").doesNotExist();
+    }
+
+    // =========================================================================
+    // Helper Methods for LedgerService Hardening Tests
+    // =========================================================================
+    private PaymentEntity createCapturingPayment(AccountEntity payer, AccountEntity payee, long amountMinor, String currency) {
+        PaymentEntity payment = new PaymentEntity(
+                "idemp-" + UUID.randomUUID(), "test-scope",
+                payer.getId(), payee.getId(),
+                amountMinor, currency
+        );
+        payment.authorize();
+        payment.authorizationSucceeded("auth_ref_" + UUID.randomUUID());
+        payment.capture();
+        return paymentRepository.saveAndFlush(payment);
+    }
+
+    private UUID generateUuidSmallerThan(UUID reference) {
+        UUID candidate;
+        do {
+            candidate = UUID.randomUUID();
+        } while (candidate.compareTo(reference) >= 0);
+        return candidate;
+    }
+
+    private UUID generateUuidLargerThan(UUID reference) {
+        UUID candidate;
+        do {
+            candidate = UUID.randomUUID();
+        } while (candidate.compareTo(reference) <= 0);
+        return candidate;
+    }
+
+    // =========================================================================
+    // AM — LedgerService Payment Settlement Hardening
+    // =========================================================================
+    @Test
+    @DisplayName("Hardening — Payment: Settlement rejected with PaymentDomainException when payer account is frozen")
+    void AM1_paymentSettlement_frozenPayer() {
+        AccountEntity frozenCustomer = getOrCreateAccount(customerUser.getId(), AccountType.CUSTOMER, "USD", 50_000L);
+        frozenCustomer.freeze();
+        accountRepository.saveAndFlush(frozenCustomer);
+
+        try {
+            PaymentEntity payment = createCapturingPayment(frozenCustomer, merchantAccount, 5000L, "USD");
+            long txCountBefore = ledgerTransactionRepository.count();
+            long payerBalanceBefore = frozenCustomer.getMaterializedBalanceMinor();
+            long merchantBalanceBefore = merchantAccount.getMaterializedBalanceMinor();
+
+            assertThatThrownBy(() -> ledgerService.settlePaymentWithLedger(payment.getId(), "cap_frozen", "corr_frozen"))
+                    .isInstanceOf(PaymentDomainException.class)
+                    .hasMessage("ACCOUNT_FROZEN");
+
+            assertThat(ledgerTransactionRepository.count()).isEqualTo(txCountBefore);
+            AccountEntity reloadedPayer = accountRepository.findById(frozenCustomer.getId()).orElseThrow();
+            AccountEntity reloadedMerchant = accountRepository.findById(merchantAccount.getId()).orElseThrow();
+            assertThat(reloadedPayer.getMaterializedBalanceMinor()).isEqualTo(payerBalanceBefore);
+            assertThat(reloadedMerchant.getMaterializedBalanceMinor()).isEqualTo(merchantBalanceBefore);
+        } finally {
+            AccountEntity reloaded = accountRepository.findById(frozenCustomer.getId()).orElse(null);
+            if (reloaded != null && reloaded.getStatus() == AccountStatus.FROZEN) {
+                reloaded.unfreeze();
+                accountRepository.saveAndFlush(reloaded);
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("Hardening — Payment: Settlement rejected with PaymentDomainException when payer currency mismatches")
+    void AM2_paymentSettlement_payerCurrencyMismatch() {
+        AccountEntity eurCustomer = getOrCreateAccount(customerUser.getId(), AccountType.CUSTOMER, "EUR", 50_000L);
+        PaymentEntity payment = createCapturingPayment(eurCustomer, merchantAccount, 5000L, "USD");
+        long txCountBefore = ledgerTransactionRepository.count();
+
+        assertThatThrownBy(() -> ledgerService.settlePaymentWithLedger(payment.getId(), "cap_curr_mismatch", "corr_mismatch"))
+                .isInstanceOf(PaymentDomainException.class)
+                .hasMessage("Currency mismatch");
+
+        assertThat(ledgerTransactionRepository.count()).isEqualTo(txCountBefore);
+    }
+
+    @Test
+    @DisplayName("Hardening — Payment: Settlement rejected with PaymentDomainException when payee currency mismatches")
+    void AM3_paymentSettlement_payeeCurrencyMismatch() {
+        AccountEntity eurMerchant = getOrCreateAccount(merchantUser.getId(), AccountType.MERCHANT, "EUR", 0L);
+        PaymentEntity payment = createCapturingPayment(customerAccount, eurMerchant, 5000L, "USD");
+        long txCountBefore = ledgerTransactionRepository.count();
+
+        assertThatThrownBy(() -> ledgerService.settlePaymentWithLedger(payment.getId(), "cap_payee_mismatch", "corr_payee_mismatch"))
+                .isInstanceOf(PaymentDomainException.class)
+                .hasMessage("Currency mismatch");
+
+        assertThat(ledgerTransactionRepository.count()).isEqualTo(txCountBefore);
+    }
+
+    @Test
+    @DisplayName("Hardening — Payment: Duplicate ledger posting rejected with IllegalStateException")
+    void AM4_paymentSettlement_duplicatePosting() {
+        AccountEntity payer = getOrCreateAccount(customerUser.getId(), AccountType.CUSTOMER, "USD", 50_000L);
+        PaymentEntity payment = createCapturingPayment(payer, merchantAccount, 5000L, "USD");
+        LedgerTransactionEntity tx = ledgerService.settlePaymentWithLedger(payment.getId(), "cap_dup_1", "corr_dup_1");
+        assertThat(tx).isNotNull();
+        long txCountAfterFirst = ledgerTransactionRepository.count();
+
+        // Reload fresh payment entity from DB to prevent optimistic locking failure
+        PaymentEntity reloadedPayment = paymentRepository.findById(payment.getId()).orElseThrow();
+        reloadedPayment.markPendingReconciliation();
+        paymentRepository.saveAndFlush(reloadedPayment);
+
+        UUID paymentId = payment.getId();
+        assertThatThrownBy(() -> ledgerService.settlePaymentWithLedger(paymentId, "cap_dup_2", "corr_dup_2"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Duplicate ledger posting detected for payment");
+
+        assertThat(ledgerTransactionRepository.count()).isEqualTo(txCountAfterFirst);
+    }
+
+    @Test
+    @DisplayName("Hardening — Payment: Authoritative ledger balance check rejects settlement despite sufficient materialized balance")
+    void AM5_paymentSettlement_authoritativeInsufficientBalance() {
+        AccountEntity underfundedCustomer = getOrCreateAccount(customerUser.getId(), AccountType.CUSTOMER, "USD", 0L);
+        underfundedCustomer.addBalanceMinor(50_000L);
+        accountRepository.saveAndFlush(underfundedCustomer);
+
+        PaymentEntity payment = createCapturingPayment(underfundedCustomer, merchantAccount, 10_000L, "USD");
+        long txCountBefore = ledgerTransactionRepository.count();
+
+        assertThatThrownBy(() -> ledgerService.settlePaymentWithLedger(payment.getId(), "cap_insuf", "corr_insuf"))
+                .isInstanceOf(PaymentDomainException.class)
+                .hasMessage("INSUFFICIENT_FUNDS");
+
+        assertThat(ledgerTransactionRepository.count()).isEqualTo(txCountBefore);
+        AccountEntity reloaded = accountRepository.findById(underfundedCustomer.getId()).orElseThrow();
+        assertThat(reloaded.getMaterializedBalanceMinor()).isEqualTo(50_000L);
+    }
+
+    @Test
+    @DisplayName("Hardening — Payment: Authoritative sufficient balance posts ledger transaction and updates balances (2-arg overload)")
+    void AM6_paymentSettlement_authoritativeSufficientBalance() {
+        AccountEntity wellFundedCustomer = getOrCreateAccount(customerUser.getId(), AccountType.CUSTOMER, "USD", 100_000L);
+        PaymentEntity payment = createCapturingPayment(wellFundedCustomer, merchantAccount, 25_000L, "USD");
+        long merchantBalanceBefore = merchantAccount.getMaterializedBalanceMinor();
+
+        LedgerTransactionEntity tx = ledgerService.settlePaymentWithLedger(payment.getId(), "cap_ok_2arg");
+        assertThat(tx).isNotNull();
+        assertThat(tx.getStatus()).isEqualTo(LedgerTransactionStatus.POSTED);
+
+        AccountEntity reloadedCust = accountRepository.findById(wellFundedCustomer.getId()).orElseThrow();
+        AccountEntity reloadedMerchant = accountRepository.findById(merchantAccount.getId()).orElseThrow();
+
+        assertThat(reloadedCust.getMaterializedBalanceMinor()).isEqualTo(75_000L);
+        assertThat(reloadedMerchant.getMaterializedBalanceMinor()).isEqualTo(merchantBalanceBefore + 25_000L);
+        assertThat(ledgerEntryRepository.calculateLedgerBalanceMinor(wellFundedCustomer.getId())).isEqualTo(75_000L);
+    }
+
+    @Test
+    @DisplayName("Hardening — Payment: Settlement rejected when payment is not in CAPTURING or PENDING_RECONCILIATION state")
+    void AM7_paymentSettlement_invalidState() {
+        PaymentEntity payment = new PaymentEntity(
+                "idemp-created-" + UUID.randomUUID(), "test-scope",
+                customerAccount.getId(), merchantAccount.getId(),
+                5000L, "USD"
+        );
+        payment = paymentRepository.saveAndFlush(payment);
+
+        UUID paymentId = payment.getId();
+        assertThatThrownBy(() -> ledgerService.settlePaymentWithLedger(paymentId, "cap_ref", "corr_ref"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Payment must be in CAPTURING or PENDING_RECONCILIATION state to settle");
+    }
+
+    @Test
+    @DisplayName("Hardening — Payment: Settlement succeeds for payment in PENDING_RECONCILIATION state")
+    void AM8_paymentSettlement_pendingReconciliationState() {
+        AccountEntity payer = getOrCreateAccount(customerUser.getId(), AccountType.CUSTOMER, "USD", 50_000L);
+        PaymentEntity payment = new PaymentEntity(
+                "idemp-recon-" + UUID.randomUUID(), "test-scope",
+                payer.getId(), merchantAccount.getId(),
+                5000L, "USD"
+        );
+        payment.markPendingReconciliation();
+        payment = paymentRepository.saveAndFlush(payment);
+
+        LedgerTransactionEntity tx = ledgerService.settlePaymentWithLedger(payment.getId(), "cap_recon", "   ");
+        assertThat(tx.getStatus()).isEqualTo(LedgerTransactionStatus.POSTED);
+
+        PaymentEntity reloaded = paymentRepository.findById(payment.getId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(PaymentStatus.SETTLED);
+    }
+
+    @Test
+    @DisplayName("Hardening — Payment: Non-customer payer account bypasses customer authoritative balance check")
+    void AM9_paymentSettlement_nonCustomerPayer() {
+        AccountEntity merchantPayer = getOrCreateAccount(merchantUser.getId(), AccountType.MERCHANT, "USD", 0L);
+        PaymentEntity payment = createCapturingPayment(merchantPayer, customerAccount, 5000L, "USD");
+
+        LedgerTransactionEntity tx = ledgerService.settlePaymentWithLedger(payment.getId(), "cap_non_cust", "corr_non_cust");
+        assertThat(tx.getStatus()).isEqualTo(LedgerTransactionStatus.POSTED);
+    }
+
+    // =========================================================================
+    // AN — LedgerService Refund Settlement Hardening
+    // =========================================================================
+    @Test
+    @DisplayName("Hardening — Refund: Settlement rejected with RefundDomainException when merchant account is frozen")
+    void AN1_refundSettlement_frozenMerchant() {
+        AccountEntity fundedMerchant = getOrCreateAccount(merchantUser.getId(), AccountType.MERCHANT, "USD", 50_000L);
+        PaymentEntity payment = createCapturingPayment(customerAccount, fundedMerchant, 10_000L, "USD");
+        RefundEntity refund = refundRepository.saveAndFlush(new RefundEntity(payment.getId(), 5000L, "USD", "Return item"));
+
+        fundedMerchant.freeze();
+        accountRepository.saveAndFlush(fundedMerchant);
+
+        try {
+            long txCountBefore = ledgerTransactionRepository.count();
+            assertThatThrownBy(() -> ledgerService.settleRefundWithLedger(refund, payment, "corr-ref-frozen"))
+                    .isInstanceOf(RefundDomainException.class)
+                    .satisfies(e -> {
+                        RefundDomainException rde = (RefundDomainException) e;
+                        assertThat(rde.getErrorCode()).isEqualTo(ErrorCode.ACCOUNT_FROZEN);
+                    });
+
+            assertThat(ledgerTransactionRepository.count()).isEqualTo(txCountBefore);
+        } finally {
+            AccountEntity reloaded = accountRepository.findById(fundedMerchant.getId()).orElse(null);
+            if (reloaded != null && reloaded.getStatus() == AccountStatus.FROZEN) {
+                reloaded.unfreeze();
+                accountRepository.saveAndFlush(reloaded);
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("Hardening — Refund: Settlement rejected with RefundDomainException when merchant has insufficient ledger balance")
+    void AN2_refundSettlement_insufficientMerchantBalance() {
+        AccountEntity brokeMerchant = getOrCreateAccount(merchantUser.getId(), AccountType.MERCHANT, "USD", 0L);
+        PaymentEntity payment = createCapturingPayment(customerAccount, brokeMerchant, 10_000L, "USD");
+        RefundEntity refund = refundRepository.saveAndFlush(new RefundEntity(payment.getId(), 5000L, "USD", "Return item"));
+
+        long txCountBefore = ledgerTransactionRepository.count();
+        assertThatThrownBy(() -> ledgerService.settleRefundWithLedger(refund, payment, "corr-ref-insuf"))
+                .isInstanceOf(RefundDomainException.class)
+                .satisfies(e -> {
+                    RefundDomainException rde = (RefundDomainException) e;
+                    assertThat(rde.getErrorCode()).isEqualTo(ErrorCode.INSUFFICIENT_FUNDS);
+                });
+
+        assertThat(ledgerTransactionRepository.count()).isEqualTo(txCountBefore);
+    }
+
+    @Test
+    @DisplayName("Hardening — Refund: Duplicate ledger posting rejected with IllegalStateException")
+    void AN3_refundSettlement_duplicatePosting() {
+        AccountEntity fundedMerchant = getOrCreateAccount(merchantUser.getId(), AccountType.MERCHANT, "USD", 50_000L);
+        PaymentEntity payment = createCapturingPayment(customerAccount, fundedMerchant, 10_000L, "USD");
+        RefundEntity refund = refundRepository.saveAndFlush(new RefundEntity(payment.getId(), 5000L, "USD", "Return item"));
+
+        LedgerTransactionEntity tx = ledgerService.settleRefundWithLedger(refund, payment, "corr-ref-1");
+        assertThat(tx).isNotNull();
+        long txCountAfterFirst = ledgerTransactionRepository.count();
+
+        assertThatThrownBy(() -> ledgerService.settleRefundWithLedger(refund, payment, "corr-ref-2"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Duplicate ledger posting detected for refund");
+
+        assertThat(ledgerTransactionRepository.count()).isEqualTo(txCountAfterFirst);
+    }
+
+    @Test
+    @DisplayName("Hardening — Refund: Fallback to Instant.now() when refund updatedAt is null")
+    void AN4_refundSettlement_nullUpdatedAtFallback() {
+        AccountEntity fundedMerchant = getOrCreateAccount(merchantUser.getId(), AccountType.MERCHANT, "USD", 50_000L);
+        PaymentEntity payment = createCapturingPayment(customerAccount, fundedMerchant, 10_000L, "USD");
+
+        RefundEntity unpersistedRefund = new RefundEntity(payment.getId(), 2000L, "USD", "Unpersisted refund");
+        ReflectionTestUtils.setField(unpersistedRefund, "id", UUID.randomUUID());
+        // updatedAt is null
+
+        LedgerTransactionEntity tx = ledgerService.settleRefundWithLedger(unpersistedRefund, payment, "corr-null-updated");
+        assertThat(tx).isNotNull();
+        assertThat(tx.getStatus()).isEqualTo(LedgerTransactionStatus.POSTED);
+    }
+
+    // =========================================================================
+    // AO — LedgerService Reversal Settlement Hardening
+    // =========================================================================
+    @Test
+    @DisplayName("Hardening — Reversal: Duplicate ledger posting rejected with IllegalStateException")
+    void AO1_reversalSettlement_duplicatePosting() {
+        AccountEntity fundedMerchant = getOrCreateAccount(merchantUser.getId(), AccountType.MERCHANT, "USD", 50_000L);
+        PaymentEntity payment = createCapturingPayment(customerAccount, fundedMerchant, 10_000L, "USD");
+        ReversalEntity reversal = reversalRepository.saveAndFlush(new ReversalEntity(payment.getId(), 10_000L, "USD", "Chargeback"));
+
+        LedgerTransactionEntity tx = ledgerService.settleReversalWithLedger(reversal, payment, "corr-rev-1");
+        assertThat(tx).isNotNull();
+        long txCountAfterFirst = ledgerTransactionRepository.count();
+
+        assertThatThrownBy(() -> ledgerService.settleReversalWithLedger(reversal, payment, "corr-rev-2"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Duplicate ledger posting detected for reversal");
+
+        assertThat(ledgerTransactionRepository.count()).isEqualTo(txCountAfterFirst);
+    }
+
+    @Test
+    @DisplayName("Hardening — Reversal: Fallback to Instant.now() when reversal updatedAt is null")
+    void AO2_reversalSettlement_nullUpdatedAtFallback() {
+        AccountEntity fundedMerchant = getOrCreateAccount(merchantUser.getId(), AccountType.MERCHANT, "USD", 50_000L);
+        PaymentEntity payment = createCapturingPayment(customerAccount, fundedMerchant, 10_000L, "USD");
+
+        ReversalEntity unpersistedReversal = new ReversalEntity(payment.getId(), 5000L, "USD", "Unpersisted reversal");
+        ReflectionTestUtils.setField(unpersistedReversal, "id", UUID.randomUUID());
+        // updatedAt is null
+
+        LedgerTransactionEntity tx = ledgerService.settleReversalWithLedger(unpersistedReversal, payment, "corr-null-rev");
+        assertThat(tx).isNotNull();
+        assertThat(tx.getStatus()).isEqualTo(LedgerTransactionStatus.POSTED);
+    }
+
+    // =========================================================================
+    // AP — LedgerService Payout Settlement Hardening
+    // =========================================================================
+    @Test
+    @DisplayName("Hardening — Payout: Settlement rejected with PayoutDomainException when origin account is frozen")
+    void AP1_payoutSettlement_frozenOrigin() {
+        AccountEntity origin = getOrCreateAccount(merchantUser.getId(), AccountType.MERCHANT, "USD", 50_000L);
+        AccountEntity clearing = getPlatformClearingAccount();
+        PayoutEntity payout = payoutRepository.saveAndFlush(new PayoutEntity(origin.getId(), 5000L, "USD"));
+
+        origin.freeze();
+        accountRepository.saveAndFlush(origin);
+
+        try {
+            long txCountBefore = ledgerTransactionRepository.count();
+            assertThatThrownBy(() -> ledgerService.settlePayoutWithLedger(payout, origin, clearing, "corr-payout-frozen"))
+                    .isInstanceOf(PayoutDomainException.class)
+                    .satisfies(e -> {
+                        PayoutDomainException pde = (PayoutDomainException) e;
+                        assertThat(pde.getErrorCode()).isEqualTo(ErrorCode.ACCOUNT_FROZEN);
+                    });
+
+            assertThat(ledgerTransactionRepository.count()).isEqualTo(txCountBefore);
+        } finally {
+            AccountEntity reloaded = accountRepository.findById(origin.getId()).orElse(null);
+            if (reloaded != null && reloaded.getStatus() == AccountStatus.FROZEN) {
+                reloaded.unfreeze();
+                accountRepository.saveAndFlush(reloaded);
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("Hardening — Payout: Settlement rejected with PayoutDomainException when origin has insufficient ledger balance")
+    void AP2_payoutSettlement_insufficientBalance() {
+        AccountEntity origin = getOrCreateAccount(merchantUser.getId(), AccountType.MERCHANT, "USD", 0L);
+        AccountEntity clearing = getPlatformClearingAccount();
+        PayoutEntity payout = payoutRepository.saveAndFlush(new PayoutEntity(origin.getId(), 5000L, "USD"));
+
+        long txCountBefore = ledgerTransactionRepository.count();
+        assertThatThrownBy(() -> ledgerService.settlePayoutWithLedger(payout, origin, clearing, "corr-payout-insuf"))
+                .isInstanceOf(PayoutDomainException.class)
+                .satisfies(e -> {
+                    PayoutDomainException pde = (PayoutDomainException) e;
+                    assertThat(pde.getErrorCode()).isEqualTo(ErrorCode.PAYOUT_INSUFFICIENT_FUNDS);
+                });
+
+        assertThat(ledgerTransactionRepository.count()).isEqualTo(txCountBefore);
+    }
+
+    @Test
+    @DisplayName("Hardening — Payout: Duplicate ledger posting rejected with IllegalStateException")
+    void AP3_payoutSettlement_duplicatePosting() {
+        AccountEntity origin = getOrCreateAccount(merchantUser.getId(), AccountType.MERCHANT, "USD", 50_000L);
+        AccountEntity clearing = getPlatformClearingAccount();
+        PayoutEntity payout = payoutRepository.saveAndFlush(new PayoutEntity(origin.getId(), 5000L, "USD"));
+
+        LedgerTransactionEntity tx = ledgerService.settlePayoutWithLedger(payout, origin, clearing, "corr-payout-1");
+        assertThat(tx).isNotNull();
+        long txCountAfterFirst = ledgerTransactionRepository.count();
+
+        assertThatThrownBy(() -> ledgerService.settlePayoutWithLedger(payout, origin, clearing, "corr-payout-2"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Duplicate ledger posting detected for payout");
+
+        assertThat(ledgerTransactionRepository.count()).isEqualTo(txCountAfterFirst);
+    }
+
+    @Test
+    @DisplayName("Hardening — Payout: Fallback to Instant.now() when payout updatedAt is null")
+    void AP4_payoutSettlement_nullUpdatedAtFallback() {
+        AccountEntity origin = getOrCreateAccount(merchantUser.getId(), AccountType.MERCHANT, "USD", 50_000L);
+        AccountEntity clearing = getPlatformClearingAccount();
+
+        PayoutEntity unpersistedPayout = new PayoutEntity(origin.getId(), 3000L, "USD");
+        ReflectionTestUtils.setField(unpersistedPayout, "id", UUID.randomUUID());
+        // updatedAt is null
+
+        LedgerTransactionEntity tx = ledgerService.settlePayoutWithLedger(unpersistedPayout, origin, clearing, "corr-null-payout");
+        assertThat(tx).isNotNull();
+        assertThat(tx.getStatus()).isEqualTo(LedgerTransactionStatus.POSTED);
+    }
+
+    // =========================================================================
+    // AQ — LedgerService Admin Adjustment Hardening
+    // =========================================================================
+    @Test
+    @DisplayName("Hardening — Adjustment: Source currency mismatch rejected with IllegalArgumentException")
+    void AQ1_postAdjustment_sourceCurrencyMismatch() {
+        long txCountBefore = ledgerTransactionRepository.count();
+        assertThatThrownBy(() -> ledgerService.postAdjustmentWithLedger(
+                UUID.randomUUID(), customerAccount.getId(), secondCustomerAccount.getId(),
+                1000L, "EUR", "Currency mismatch test", adminUser.getId(), "corr-adj-curr"
+        ))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Account currency does not match adjustment currency");
+
+        assertThat(ledgerTransactionRepository.count()).isEqualTo(txCountBefore);
+    }
+
+    @Test
+    @DisplayName("Hardening — Adjustment: Target currency mismatch rejected with IllegalArgumentException")
+    void AQ2_postAdjustment_targetCurrencyMismatch() {
+        AccountEntity eurAccount = getOrCreateAccount(merchantUser.getId(), AccountType.MERCHANT, "EUR", 0L);
+        long txCountBefore = ledgerTransactionRepository.count();
+
+        assertThatThrownBy(() -> ledgerService.postAdjustmentWithLedger(
+                UUID.randomUUID(), customerAccount.getId(), eurAccount.getId(),
+                1000L, "USD", "Target currency mismatch test", adminUser.getId(), "corr-target-mismatch"
+        ))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Account currency does not match adjustment currency");
+
+        assertThat(ledgerTransactionRepository.count()).isEqualTo(txCountBefore);
+    }
+
+    @Test
+    @DisplayName("Hardening — Adjustment: Missing source and target accounts rejected across all lock ordering paths")
+    void AQ3_postAdjustment_missingAccountsBothLockOrders() {
+        long txCountBefore = ledgerTransactionRepository.count();
+
+        // 1. Missing source < existing target (hits line 552)
+        UUID smallerMissingSource = generateUuidSmallerThan(customerAccount.getId());
+        assertThatThrownBy(() -> ledgerService.postAdjustmentWithLedger(
+                UUID.randomUUID(), smallerMissingSource, customerAccount.getId(),
+                100L, "USD", "test", adminUser.getId(), "corr-1"
+        ))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Source account not found");
+
+        // 2. Existing source < missing target (hits line 554)
+        UUID largerMissingTarget = generateUuidLargerThan(customerAccount.getId());
+        assertThatThrownBy(() -> ledgerService.postAdjustmentWithLedger(
+                UUID.randomUUID(), customerAccount.getId(), largerMissingTarget,
+                100L, "USD", "test", adminUser.getId(), "corr-2"
+        ))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Target account not found");
+
+        // 3. Missing target < existing source (hits line 557)
+        UUID smallerMissingTarget = generateUuidSmallerThan(customerAccount.getId());
+        assertThatThrownBy(() -> ledgerService.postAdjustmentWithLedger(
+                UUID.randomUUID(), customerAccount.getId(), smallerMissingTarget,
+                100L, "USD", "test", adminUser.getId(), "corr-3"
+        ))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Target account not found");
+
+        // 4. Existing target < missing source (hits line 559)
+        UUID largerMissingSource = generateUuidLargerThan(customerAccount.getId());
+        assertThatThrownBy(() -> ledgerService.postAdjustmentWithLedger(
+                UUID.randomUUID(), largerMissingSource, customerAccount.getId(),
+                100L, "USD", "test", adminUser.getId(), "corr-4"
+        ))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Source account not found");
+
+        assertThat(ledgerTransactionRepository.count()).isEqualTo(txCountBefore);
+    }
+
+    // =========================================================================
+    // AR — LedgerService Lock Ordering Hardening
+    // =========================================================================
+    @Test
+    @DisplayName("Hardening — Lock Ordering: All settlement operations execute correctly when account ID order is reversed")
+    void AR1_lockOrderingReversed_allSettlementOperations() {
+        AccountEntity accA = getOrCreateAccount(customerUser.getId(), AccountType.CUSTOMER, "USD", 100_000L);
+        AccountEntity accB = getOrCreateAccount(merchantUser.getId(), AccountType.MERCHANT, "USD", 100_000L);
+
+        AccountEntity smallerAcc = accA.getId().compareTo(accB.getId()) < 0 ? accA : accB;
+        AccountEntity largerAcc = accA.getId().compareTo(accB.getId()) < 0 ? accB : accA;
+
+        // 1. Payment with larger as payer, smaller as payee (exercises payerId > payeeId branch)
+        PaymentEntity paymentRev = createCapturingPayment(largerAcc, smallerAcc, 1000L, "USD");
+        LedgerTransactionEntity txPay = ledgerService.settlePaymentWithLedger(paymentRev.getId(), "cap_rev_order");
+        assertThat(txPay.getStatus()).isEqualTo(LedgerTransactionStatus.POSTED);
+
+        // 2. Refund with larger as payer, smaller as payee (exercises payerAccountId > payeeAccountId branch)
+        RefundEntity refundRev = refundRepository.saveAndFlush(new RefundEntity(paymentRev.getId(), 500L, "USD", "Refund rev"));
+        LedgerTransactionEntity txRef = ledgerService.settleRefundWithLedger(refundRev, paymentRev, "corr_ref_rev");
+        assertThat(txRef.getStatus()).isEqualTo(LedgerTransactionStatus.POSTED);
+
+        // 3. Reversal with larger as payer, smaller as payee (exercises payerAccountId > payeeAccountId branch)
+        PaymentEntity paymentForRev = createCapturingPayment(largerAcc, smallerAcc, 1000L, "USD");
+        ReversalEntity reversalRev = reversalRepository.saveAndFlush(new ReversalEntity(paymentForRev.getId(), 1000L, "USD", "Rev chargeback"));
+        LedgerTransactionEntity txRev = ledgerService.settleReversalWithLedger(reversalRev, paymentForRev, "corr_rev_rev");
+        assertThat(txRev.getStatus()).isEqualTo(LedgerTransactionStatus.POSTED);
+
+        // 4. Payout with origin ID > settlement ID (exercises originId.compareTo(settlementId) >= 0 branch)
+        AccountEntity clearing = getPlatformClearingAccount();
+        AccountEntity originAccount;
+        do {
+            originAccount = getOrCreateAccount(merchantUser.getId(), AccountType.MERCHANT, "USD", 50_000L);
+        } while (originAccount.getId().compareTo(clearing.getId()) <= 0);
+
+        assertThat(originAccount.getId().compareTo(clearing.getId()))
+                .as("Origin account ID must be strictly greater than clearing account ID")
+                .isGreaterThan(0);
+
+        PayoutEntity payout = payoutRepository.saveAndFlush(new PayoutEntity(originAccount.getId(), 1000L, "USD"));
+        LedgerTransactionEntity txPayout = ledgerService.settlePayoutWithLedger(payout, originAccount, clearing, "corr_payout_rev");
+        assertThat(txPayout.getStatus()).isEqualTo(LedgerTransactionStatus.POSTED);
+    }
+
+    // =========================================================================
+    // AS — LedgerService Correlation ID Hardening
+    // =========================================================================
+    @Test
+    @DisplayName("Hardening — Correlation ID: Valid UUID preserved, non-UUID converted deterministically, null/blank generates non-null")
+    void AS1_correlationId_allBranches() {
+        // Branch 1: Valid UUID
+        String validUuidStr = "a1b2c3d4-e5f6-4a1b-8c2d-3e4f5a6b7c8d";
+        UUID validUuid = UUID.fromString(validUuidStr);
+        UUID adjId1 = UUID.randomUUID();
+        ledgerService.postAdjustmentWithLedger(
+                adjId1, customerAccount.getId(), secondCustomerAccount.getId(),
+                100L, "USD", "Valid UUID correlation", adminUser.getId(), validUuidStr
+        );
+        OutboxEventEntity event1 = outboxEventRepository.findByAggregateTypeAndAggregateIdOrderByCreatedAtAsc("FINANCIAL_ADJUSTMENT", adjId1.toString()).stream().findFirst().orElseThrow();
+        assertThat(event1.getCorrelationId()).isEqualTo(validUuid);
+
+        // Branch 2: Non-UUID string produces deterministic nameUUIDFromBytes
+        String customCorrelation = "trace-custom-correlation-98765";
+        UUID expectedDeterministicUuid = UUID.nameUUIDFromBytes(customCorrelation.getBytes(StandardCharsets.UTF_8));
+        UUID adjId2 = UUID.randomUUID();
+        ledgerService.postAdjustmentWithLedger(
+                adjId2, customerAccount.getId(), secondCustomerAccount.getId(),
+                100L, "USD", "Non-UUID correlation", adminUser.getId(), customCorrelation
+        );
+        OutboxEventEntity event2 = outboxEventRepository.findByAggregateTypeAndAggregateIdOrderByCreatedAtAsc("FINANCIAL_ADJUSTMENT", adjId2.toString()).stream().findFirst().orElseThrow();
+        assertThat(event2.getCorrelationId()).isEqualTo(expectedDeterministicUuid);
+
+        // Branch 3a: Null correlation ID generates non-null random UUID
+        UUID adjId3 = UUID.randomUUID();
+        ledgerService.postAdjustmentWithLedger(
+                adjId3, customerAccount.getId(), secondCustomerAccount.getId(),
+                100L, "USD", "Null correlation", adminUser.getId(), null
+        );
+        OutboxEventEntity event3 = outboxEventRepository.findByAggregateTypeAndAggregateIdOrderByCreatedAtAsc("FINANCIAL_ADJUSTMENT", adjId3.toString()).stream().findFirst().orElseThrow();
+        assertThat(event3.getCorrelationId()).isNotNull();
+
+        // Branch 3b: Blank correlation ID generates non-null random UUID
+        UUID adjId4 = UUID.randomUUID();
+        ledgerService.postAdjustmentWithLedger(
+                adjId4, customerAccount.getId(), secondCustomerAccount.getId(),
+                100L, "USD", "Blank correlation", adminUser.getId(), "   "
+        );
+        OutboxEventEntity event4 = outboxEventRepository.findByAggregateTypeAndAggregateIdOrderByCreatedAtAsc("FINANCIAL_ADJUSTMENT", adjId4.toString()).stream().findFirst().orElseThrow();
+        assertThat(event4.getCorrelationId()).isNotNull();
+    }
+
+    // =========================================================================
+    // AT — LedgerService Metrics Fail-Safe & Constructor Hardening
+    // =========================================================================
+    @Test
+    @DisplayName("Hardening — Metrics fail-safe: Financial transaction commits successfully even if metric recording throws")
+    void AT1_metricsFailSafe_transactionSucceedsOnMetricException() {
+        PlatformMetrics mockMetrics = mock(PlatformMetrics.class);
+        doThrow(new RuntimeException("Simulated metrics failure"))
+                .when(mockMetrics).recordLedgerBalanceCheck(anyString(), anyBoolean());
+        doThrow(new RuntimeException("Simulated metrics failure"))
+                .when(mockMetrics).recordLedgerTransactionPosted(anyString(), anyString());
+
+        PlatformMetrics originalMetrics = (PlatformMetrics) ReflectionTestUtils.getField(ledgerService, "platformMetrics");
+        try {
+            ReflectionTestUtils.setField(ledgerService, "platformMetrics", mockMetrics);
+
+            AccountEntity payer = getOrCreateAccount(customerUser.getId(), AccountType.CUSTOMER, "USD", 50_000L);
+            PaymentEntity payment = createCapturingPayment(payer, merchantAccount, 10_000L, "USD");
+
+            // 1. Payment settlement (sufficient)
+            LedgerTransactionEntity tx = ledgerService.settlePaymentWithLedger(payment.getId(), "cap_metric_test", "corr_metric_test");
+            assertThat(tx).isNotNull();
+            assertThat(tx.getStatus()).isEqualTo(LedgerTransactionStatus.POSTED);
+            assertThat(ledgerTransactionRepository.findById(tx.getId())).isPresent();
+
+            AccountEntity reloadedPayer = accountRepository.findById(payer.getId()).orElseThrow();
+            assertThat(reloadedPayer.getMaterializedBalanceMinor()).isEqualTo(40_000L);
+
+            // 2. Payment settlement (insufficient authoritative funds)
+            AccountEntity brokePayer = getOrCreateAccount(customerUser.getId(), AccountType.CUSTOMER, "USD", 0L);
+            PaymentEntity brokePayment = createCapturingPayment(brokePayer, merchantAccount, 10_000L, "USD");
+            assertThatThrownBy(() -> ledgerService.settlePaymentWithLedger(brokePayment.getId(), "cap_metric_fail", "corr_metric_fail"))
+                    .isInstanceOf(PaymentDomainException.class)
+                    .hasMessage("INSUFFICIENT_FUNDS");
+
+            // 3. Refund settlement
+            AccountEntity fundedMerchant = getOrCreateAccount(merchantUser.getId(), AccountType.MERCHANT, "USD", 50_000L);
+            PaymentEntity payForRef = createCapturingPayment(customerAccount, fundedMerchant, 10_000L, "USD");
+            RefundEntity refund = refundRepository.saveAndFlush(new RefundEntity(payForRef.getId(), 2000L, "USD", "Metric fail refund"));
+            LedgerTransactionEntity txRef = ledgerService.settleRefundWithLedger(refund, payForRef, "corr-ref-metric");
+            assertThat(txRef.getStatus()).isEqualTo(LedgerTransactionStatus.POSTED);
+
+            // 4. Reversal settlement
+            PaymentEntity payForRev = createCapturingPayment(customerAccount, fundedMerchant, 5000L, "USD");
+            ReversalEntity reversal = reversalRepository.saveAndFlush(new ReversalEntity(payForRev.getId(), 5000L, "USD", "Metric fail rev"));
+            LedgerTransactionEntity txRev = ledgerService.settleReversalWithLedger(reversal, payForRev, "corr-rev-metric");
+            assertThat(txRev.getStatus()).isEqualTo(LedgerTransactionStatus.POSTED);
+
+            // 5. Payout settlement
+            AccountEntity clearing = getPlatformClearingAccount();
+            PayoutEntity payout = payoutRepository.saveAndFlush(new PayoutEntity(fundedMerchant.getId(), 1000L, "USD"));
+            LedgerTransactionEntity txPayout = ledgerService.settlePayoutWithLedger(payout, fundedMerchant, clearing, "corr-payout-metric");
+            assertThat(txPayout.getStatus()).isEqualTo(LedgerTransactionStatus.POSTED);
+
+            // 6. Admin adjustment
+            LedgerTransactionEntity txAdj = ledgerService.postAdjustmentWithLedger(
+                    UUID.randomUUID(), customerAccount.getId(), secondCustomerAccount.getId(),
+                    500L, "USD", "Metric fail adjustment", adminUser.getId(), "corr-adj-metric"
+            );
+            assertThat(txAdj.getStatus()).isEqualTo(LedgerTransactionStatus.POSTED);
+        } finally {
+            ReflectionTestUtils.setField(ledgerService, "platformMetrics", originalMetrics);
+        }
+    }
+
+    @Test
+    @DisplayName("Hardening — LedgerService: 4-argument constructor and setPlatformMetrics coverage")
+    void AT2_ledgerService_constructorsAndSetters() {
+        LedgerService service = new LedgerService(
+                ledgerTransactionRepository,
+                ledgerEntryRepository,
+                accountRepository,
+                paymentRepository
+        );
+        assertThat(service).isNotNull();
+
+        // Exercise package-private setter via ReflectionTestUtils
+        ReflectionTestUtils.invokeMethod(service, "setPlatformMetrics", platformMetrics);
     }
 }
