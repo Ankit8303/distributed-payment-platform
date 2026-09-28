@@ -46,6 +46,9 @@ jobs:
       - name: Validate Production Configurations & Containers
         run: ./scripts/validate-configs.sh
 
+      - name: Validate Release Attestation Enforcement
+        run: ./scripts/validate-release-attestation.sh
+
   build-and-test:
     name: Build, Test & Coverage Gate
     runs-on: ubuntu-latest
